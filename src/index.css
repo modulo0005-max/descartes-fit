@@ -1,0 +1,170 @@
+@import url('https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansBold.woff');
+@import url('https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansMedium.woff');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'GmarketSansBold';
+  src: url('https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansBold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'GmarketSansMedium';
+  src: url('https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansMedium.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+}
+
+@layer base {
+  body {
+    background-color: #f5f3ef; /* Warm game table canvas */
+    color: #262626;
+    font-family: 'Pretendard', 'GmarketSansMedium', sans-serif;
+  }
+
+  h1, h2, h3, h4, .font-game {
+    font-family: 'Jua', 'GmarketSansBold', 'Pretendard', sans-serif;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer utilities {
+  .font-game {
+    font-family: 'Jua', 'GmarketSansBold', 'Pretendard', sans-serif;
+  }
+
+  .font-display {
+    font-family: 'GmarketSansBold', 'Jua', 'Pretendard', sans-serif;
+  }
+
+  /* Nintendo Authored Focus Treatment: 4px solid #3946a0 outline, offset 4px */
+  .nintendo-focus {
+    outline: 4px solid #3946a0;
+    outline-offset: 4px;
+  }
+
+  /* Nintendo 3D Arcade Push Button */
+  .nintendo-btn-primary, .btn-nintendo-red {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 24px;
+    height: 48px;
+    border-radius: 14px;
+    background-color: #e60012;
+    color: #ffffff;
+    font-family: 'Jua', 'GmarketSansBold', sans-serif;
+    font-size: 18px;
+    border-bottom: 4px solid #99000c;
+    box-shadow: 0 4px 10px rgba(230, 0, 18, 0.25);
+    transition: all 0.15s ease-in-out;
+  }
+
+  .nintendo-btn-primary:hover, .btn-nintendo-red:hover {
+    background-color: #f00518;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(230, 0, 18, 0.35);
+  }
+
+  .nintendo-btn-primary:active, .btn-nintendo-red:active {
+    transform: translateY(2px);
+    border-bottom-width: 1px;
+    box-shadow: 0 2px 4px rgba(230, 0, 18, 0.2);
+  }
+
+  /* Tactile Pill Button */
+  .nintendo-utility-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 6px 14px;
+    border-radius: 12px;
+    background-color: #ffffff;
+    color: #333333;
+    font-family: 'Pretendard', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1.5px solid #e2ded5;
+    border-bottom: 3px solid #d0cbc0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+    transition: all 0.15s ease-in-out;
+  }
+
+  .nintendo-utility-pill:hover {
+    color: #e60012;
+    border-color: #e60012;
+    background-color: #fffaf9;
+    transform: translateY(-1px);
+  }
+
+  .nintendo-utility-pill:active {
+    transform: translateY(2px);
+    border-bottom-width: 1.5px;
+  }
+
+  /* Tactile Game Board Surface */
+  .game-board-mat {
+    background: radial-gradient(circle at 50% 30%, #ffffff 0%, #faf8f5 100%);
+    border: 3px solid #e5dfd5;
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.03), 0 8px 24px rgba(0, 0, 0, 0.05);
+    border-radius: 28px;
+  }
+
+  /* Comic Speech Bubble with Tail */
+  .game-speech-bubble {
+    position: relative;
+    background: #ffffff;
+    border: 2.5px solid #262626;
+    border-radius: 18px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  .game-speech-bubble::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 10px solid #ffffff;
+    filter: drop-shadow(0 2px 1px rgba(0,0,0,0.1));
+  }
+
+  .game-speech-bubble-match {
+    background: #e60012;
+    color: #ffffff;
+    border-color: #99000c;
+    box-shadow: 0 6px 16px rgba(230, 0, 18, 0.3);
+  }
+
+  .game-speech-bubble-match::after {
+    border-top-color: #e60012;
+  }
+}
+
+/* Light clean custom scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1ede5;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d5cfc2;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #bab2a3;
+}

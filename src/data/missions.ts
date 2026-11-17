@@ -1,0 +1,105 @@
+import { RushMission } from '../types/game';
+
+export const RUSH_MISSIONS: RushMission[] = [
+  {
+    id: 'm1',
+    property: 'origin_symmetry',
+    title: '원점 대칭 함수 (기함수 / Odd Function)',
+    description: 'f(-x) = -f(x) 를 만족하며, (0, 0)을 중심으로 180° 회전해도 겹치는 함수를 고르세요!',
+    hint: '항등함수 f(x)=x, 역행직선 f(x)=-x, 분수함수 1/x 등이 해당됩니다.',
+    difficulty: 'easy',
+    minGrade: 'high1',
+  },
+  {
+    id: 'm2',
+    property: 'y_axis_symmetry',
+    title: 'y축 대칭 함수 (우함수 / Even Function)',
+    description: 'f(-x) = f(x) 를 만족하며, y축을 접는 선으로 접었을 때 완전히 포개어지는 함수를 고르세요!',
+    hint: 'y축을 대칭축으로 하는 포물선 x², -x²+4 등을 찾아보세요.',
+    difficulty: 'easy',
+    minGrade: 'high1',
+  },
+  {
+    id: 'm3',
+    property: 'has_asymptote',
+    title: '점근선(Asymptote)을 가진 함수',
+    description: '곡선이 어떤 직선(x=c 또는 y=c)에 한없이 가까워지지만 결코 닿지 않는 점근선을 가진 함수를 고르세요!',
+    hint: '분모가 0이 되는 지점을 가진 유리함수(분수함수)를 찾아보세요.',
+    difficulty: 'medium',
+    minGrade: 'high1',
+  },
+  {
+    id: 'm4',
+    property: 'passes_origin',
+    title: '원점 (0,0)을 통과하는 함수',
+    description: 'x = 0 을 대입했을 때 함수값 f(0) = 0 이 되는 카드를 고르세요!',
+    hint: 'y절편이 0인 수식이나 시작점이 원점인 함수를 살펴보세요.',
+    difficulty: 'easy',
+    minGrade: 'high1',
+  },
+  {
+    id: 'm6',
+    property: 'always_increasing',
+    title: '실수 전체에서 증가하는 함수',
+    description: 'x가 커질수록 y값도 계속해서 위로만 상승하는 증가함수를 고르세요!',
+    hint: '기울기가 양수인 일차함수 f(x)=2x, 무리함수 등을 찾아보세요.',
+    difficulty: 'medium',
+    minGrade: 'high1',
+  },
+  {
+    id: 'm7',
+    property: 'limited_domain',
+    title: '정의역(Domain)에 제한이 있는 함수',
+    description: '모든 실수에서 정의되지 못하고, 분모≠0이어야 하거나 루트 안이 0 이상이어야 하는 함수!',
+    hint: '유리함수(x≠p) 또는 무리함수(x≥a) 카드를 선택하세요.',
+    difficulty: 'medium',
+    minGrade: 'high1',
+  },
+  {
+    id: 'm10',
+    property: 'has_max_or_min',
+    title: '최댓값 또는 최솟값을 갖는 함수 (꼭짓점)',
+    description: '아래로 볼록하여 최솟값을 갖거나, 위로 볼록하여 최댓값을 갖는 꼭짓점을 가진 포물선 함수를 고르세요!',
+    hint: '이차함수 ax² + bx + c 형태의 카드를 찾아보세요.',
+    difficulty: 'easy',
+    minGrade: 'high1',
+  },
+  {
+    id: 'm11',
+    property: 'always_decreasing',
+    title: '실수 전체에서 감소하는 함수',
+    description: '오른쪽으로 갈수록 그래프가 아래로 하강하는 감소함수를 고르세요!',
+    hint: '기울기가 음수인 일차함수(예: -x, -2x+6)를 찾아보세요.',
+    difficulty: 'easy',
+    minGrade: 'high1',
+  },
+
+  // ======== 고2 이상 (수학 I / 수학 II) 전용 미션 ========
+  {
+    id: 'm8',
+    property: 'periodic',
+    title: '주기(Period)를 갖고 반복되는 함수',
+    description: '일정한 간격(주기 T)마다 같은 모양의 파동이 무한히 되풀이되는 함수를 고르세요!',
+    hint: 'sin(x), cos(x) 등 삼각함수를 선택하세요.',
+    difficulty: 'easy',
+    minGrade: 'high2', // 고1 배제
+  },
+  {
+    id: 'm5',
+    property: 'has_two_extrema',
+    title: '극대와 극소를 모두 가진 함수 (미적분)',
+    description: '미분계수가 0이 되며 증가하다 감소하는 지점(극대)과 감소하다 증가하는 지점(극소)이 둘 다 있는 함수를 고르세요!',
+    hint: 'S자 굴곡을 이루는 삼차함수 x³ - 3x 등을 찾아보세요.',
+    difficulty: 'hard',
+    minGrade: 'high2', // 고1 배제
+  },
+  {
+    id: 'm9',
+    property: 'has_extremum',
+    title: '극값(Local Extrema)을 갖는 다항함수 (미적분)',
+    description: '도함수 f\'(x)=0의 좌우에서 부호가 바뀌는 극댓값 또는 극솟값을 갖는 함수를 고르세요!',
+    hint: '삼차함수 또는 접선의 기울기가 0이 되는 지점을 가진 카드가 정답입니다.',
+    difficulty: 'medium',
+    minGrade: 'high2', // 고1 배제
+  },
+];
