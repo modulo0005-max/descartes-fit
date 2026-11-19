@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useMultiplayerGame } from '../../hooks/useMultiplayerGame';
 import { Card } from '../common/Card';
 import { CardDetailModal } from '../common/CardDetailModal';
+import { DescartesXJustificationModal } from '../descartesX/DescartesXJustificationModal';
 import { FunctionCard } from '../../types/math';
 import {
   Layers,
@@ -23,6 +24,7 @@ export const MultiplayerXBoard: React.FC<MultiplayerXBoardProps> = ({
 }) => {
   const { roomState, playCardX, drawCardX } = multiplayer;
   const [inspectedCard, setInspectedCard] = useState<FunctionCard | null>(null);
+  const [justificationCandidate, setJustificationCandidate] = useState<FunctionCard | null>(null);
 
   const xState = roomState.xState;
   const topCard = xState?.topCard || null;
@@ -35,12 +37,6 @@ export const MultiplayerXBoard: React.FC<MultiplayerXBoardProps> = ({
   const otherPlayers = roomState.players.filter(
     (p) => p.peerId !== roomState.myPeerId
   );
-
-  // 두 카드가 공통 성질을 공유하는지 검사
-  const checkHasCommonProperty = (c1: FunctionCard, c2: FunctionCard): boolean => {
-    if (c1.family === c2.family) return true; // 같은 계열
-    return c1.properties.some((p) => c2.properties.includes(p)); // 공통 성질
-  };
 
   return (
     <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4 space-y-6 select-none">
@@ -212,7 +208,7 @@ export const MultiplayerXBoard: React.FC<MultiplayerXBoardProps> = ({
                   card={topCard}
                   size="md"
                   selectable={false}
-                  showProperties={true}
+                  showProperties={false}
                   onInspect={(c) => setInspectedCard(c)}
                 />
               </div>
@@ -234,44 +230,54 @@ export const MultiplayerXBoard: React.FC<MultiplayerXBoardProps> = ({
               내 손패 ({roomState.myHand.length}장)
             </span>
           </div>
-          <div className="text-xs text-[#727272] flex items-center gap-1">
+          <div className="text-xs text-[#727272] flex items-center gap-1 font-bold">
             <HelpCircle size={14} className="text-[#e60012]" />
-            <span>바닥 카드와 공통 성질이 있는 카드를 클릭하면 즉시 내려놓습니다.</span>
+            <span>성질 태그 힌트 없음! 식과 그래프를 분석하여 카드를 터치하고 이유를 증명하세요.</span>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {roomState.myHand.map((card) => {
-            const isPlayable = isMyTurn && topCard && checkHasCommonProperty(card, topCard);
             return (
               <div
                 key={card.id}
+                onClick={() => {
+                  if (isMyTurn) {
+                    setJustificationCandidate(card);
+                  }
+                }}
                 className={`relative transition-all ${
-                  isPlayable
-                    ? 'transform hover:-translate-y-2 ring-2 ring-emerald-500 rounded-2xl shadow-md cursor-pointer'
-                    : isMyTurn
-                    ? 'opacity-60 grayscale-[30%]'
-                    : 'opacity-70'
+                  isMyTurn
+                    ? 'transform hover:-translate-y-2 hover:shadow-lg cursor-pointer'
+                    : 'opacity-70 cursor-not-allowed'
                 }`}
               >
-                {isPlayable && (
-                  <span className="absolute -top-2 -right-2 z-10 px-2 py-0.5 rounded-full bg-emerald-500 text-white font-game text-[10px] font-black shadow">
-                    낼 수 있음!
-                  </span>
-                )}
                 <Card
                   card={card}
                   size="sm"
-                  selectable={!!isPlayable}
-                  onSelect={() => playCardX(card)}
+                  selectable={false}
                   onInspect={(c) => setInspectedCard(c)}
-                  showProperties={true}
+                  showProperties={false}
                 />
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* 수학적 이유 설명 모달 */}
+      {justificationCandidate && topCard && (
+        <DescartesXJustificationModal
+          isOpen={true}
+          onClose={() => setJustificationCandidate(null)}
+          topCard={topCard}
+          selectedCard={justificationCandidate}
+          onConfirmSuccess={() => {
+            playCardX(justificationCandidate);
+            setJustificationCandidate(null);
+          }}
+        />
+      )}
 
       {/* 카드 상세 모달 */}
       {inspectedCard && (

@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { FunctionCard, FunctionFamily } from '../../types/math';
 import { FUNCTION_CARDS } from '../../data/functionCards';
 import { Card } from '../common/Card';
+import { DescartesXJustificationModal } from './DescartesXJustificationModal';
 import { soundEngine } from '../../utils/audio';
 import confetti from 'canvas-confetti';
-import { Layers, RotateCcw, Trophy } from 'lucide-react';
+import { Layers, RotateCcw, Trophy, ShieldCheck } from 'lucide-react';
 
 interface DescartesXBoardProps {
   allowedFamilies?: FunctionFamily[];
@@ -21,6 +22,7 @@ export const DescartesXBoard: React.FC<DescartesXBoardProps> = ({
   const [isGameOver, setIsGameOver] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
   const [log, setLog] = useState<string>('카드를 5장씩 나누어 가졌습니다. 바닥 카드와 공통 성질을 가진 카드를 내세요!');
+  const [justificationCandidate, setJustificationCandidate] = useState<FunctionCard | null>(null);
 
   // 게임 초기화 (각자 5장씩 배분, 바닥 1장 오픈)
   const initGame = useCallback(() => {
@@ -53,33 +55,30 @@ export const DescartesXBoard: React.FC<DescartesXBoardProps> = ({
     return c1.properties.some((p) => c2.properties.includes(p));
   };
 
-  // 플레이어 카드 내기
-  const handlePlayCard = (card: FunctionCard) => {
+  // 플레이어가 손패를 터치했을 때: 즉시 내지 않고 수학적 근거 제시 모달 오픈
+  const handleClickHandCard = (card: FunctionCard) => {
     if (turn !== 'player' || isGameOver || !topCard) return;
+    setJustificationCandidate(card);
+  };
 
-    if (!checkHasCommonProperty(card, topCard)) {
-      soundEngine.playWrong();
-      setLog(`❌ 바닥 카드와 공통 성질이 없습니다! 같은 계열이거나 공통 성질(대칭성, 점근선 등)을 공유해야 합니다.`);
-      return;
-    }
-
+  // 수학적 근거 검증 성공 후 카드 내기 확정
+  const handleConfirmPlayCard = (card: FunctionCard, reasonLabel: string) => {
     soundEngine.playTradeSuccess();
     const newHand = playerHand.filter((c) => c.id !== card.id);
     setPlayerHand(newHand);
     setTopCard(card);
 
     if (newHand.length === 0) {
-      // 플레이어 승리!
       soundEngine.playCorrect();
       setIsGameOver(true);
       setWinner('플레이어');
-      setLog('🎉 축하합니다! 손패를 모두 털어내어 승리했습니다!');
+      setLog(`🎉 축하합니다! [${reasonLabel}] 근거를 증명하고 손패를 모두 털어내어 승리했습니다!`);
       confetti({ particleCount: 150, spread: 90 });
       return;
     }
 
     setTurn('ai');
-    setLog(`내가 [${card.expression}] 카드를 냈습니다! 오일러의 턴입니다.`);
+    setLog(`내가 [${reasonLabel}] 근거를 제시하고 [${card.expression}] 카드를 냈습니다! 오일러의 턴입니다.`);
   };
 
   // 덱에서 1장 뽑기
@@ -212,7 +211,7 @@ export const DescartesXBoard: React.FC<DescartesXBoardProps> = ({
             </span>
             {topCard && (
               <div className="ring-4 ring-[#e60012] rounded-xl shadow-xl">
-                <Card card={topCard} size="md" selectable={false} showProperties={true} />
+                <Card card={topCard} size="md" selectable={false} showProperties={false} />
               </div>
             )}
           </div>
@@ -243,8 +242,9 @@ export const DescartesXBoard: React.FC<DescartesXBoardProps> = ({
         {/* 하단 내 손패 (클릭하여 내기) */}
         <div className="bg-white p-4 rounded-2xl border border-[#dadada]">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#dadada]">
-            <span className="font-bold text-sm text-[#484848]">
-              내 손패 ({playerHand.length}장) - 낼 수 있는 카드를 터치하세요!
+            <span className="font-bold text-sm text-[#484848] flex items-center gap-1.5">
+              <ShieldCheck size={16} className="text-[#e60012]" />
+              내 손패 ({playerHand.length}장) - 성질 태그 힌트 없음 (스스로 식과 그래프를 분석하세요)
             </span>
             {turn === 'player' && (
               <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-300">
@@ -255,21 +255,33 @@ export const DescartesXBoard: React.FC<DescartesXBoardProps> = ({
 
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {playerHand.map((card) => {
-              const isPlayable = topCard ? checkHasCommonProperty(card, topCard) : false;
               return (
                 <div
                   key={card.id}
-                  onClick={() => handlePlayCard(card)}
-                  className={`cursor-pointer transition-all ${isPlayable ? 'hover:-translate-y-2 ring-2 ring-emerald-400 rounded-xl' : 'opacity-60'
-                    }`}
+                  onClick={() => handleClickHandCard(card)}
+                  className="cursor-pointer transition-all hover:-translate-y-2 hover:shadow-md"
                 >
-                  <Card card={card} size="sm" selectable={false} showProperties={true} />
+                  <Card card={card} size="sm" selectable={false} showProperties={false} />
                 </div>
               );
             })}
           </div>
         </div>
       </div>
+
+      {/* 수학적 이유 설명 모달 */}
+      {justificationCandidate && topCard && (
+        <DescartesXJustificationModal
+          isOpen={true}
+          onClose={() => setJustificationCandidate(null)}
+          topCard={topCard}
+          selectedCard={justificationCandidate}
+          onConfirmSuccess={(reason) => {
+            handleConfirmPlayCard(justificationCandidate, reason);
+            setJustificationCandidate(null);
+          }}
+        />
+      )}
     </div>
   );
 };
