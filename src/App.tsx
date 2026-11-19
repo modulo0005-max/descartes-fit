@@ -177,6 +177,7 @@ export const App: React.FC = () => {
         multiplayer={multiplayer}
         initialRoomCode={initialRoomCode}
         initialTab={initialRoomCode ? 'client' : 'host'}
+        allowedFamilies={activeAllowedFamilies}
       />
 
       {/* 교육과정 설정 모달 */}

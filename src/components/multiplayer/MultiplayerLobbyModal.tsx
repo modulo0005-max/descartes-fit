@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { QRCodeSVG } from 'qrcode.react';
 import { useMultiplayerGame } from '../../hooks/useMultiplayerGame';
+import { FunctionFamily } from '../../types/math';
 import {
   Users,
   QrCode,
@@ -22,6 +23,7 @@ interface MultiplayerLobbyModalProps {
   multiplayer: ReturnType<typeof useMultiplayerGame>;
   initialRoomCode?: string;
   initialTab?: 'host' | 'client';
+  allowedFamilies?: FunctionFamily[];
 }
 
 export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
@@ -30,6 +32,7 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
   multiplayer,
   initialRoomCode = '',
   initialTab = 'host',
+  allowedFamilies,
 }) => {
   const {
     roomState,
@@ -244,23 +247,39 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                   </div>
 
                   <div className="pt-3 border-t border-[#dadada] space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        startMultiplayerGame();
-                        onClose();
-                      }}
-                      className="btn-nintendo-red w-full py-3 text-base font-game font-black flex items-center justify-center gap-2 shadow-md cursor-pointer"
-                    >
-                      <Play size={18} fill="currentColor" />
-                      <span>게임 시작 (모든 학생에게 9장 배분)</span>
-                    </button>
+                    {(() => {
+                      const playerCount = roomState.players.length;
+                      const canStart = playerCount >= 2;
+                      const buttonLabel =
+                        playerCount < 2
+                          ? '대기 중 (학생 접속 대기... 최소 2인 필요)'
+                          : playerCount === 2
+                          ? '⚔️ 2인 듀얼 시작! (총 18장 / 2개 함수 세트)'
+                          : playerCount === 3
+                          ? '🔺 3인 삼파전 시작! (총 27장 / 3개 함수 세트)'
+                          : '👑 4인 표준 대전 시작! (총 36장 / 4개 함수 세트)';
+
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            startMultiplayerGame(allowedFamilies);
+                            onClose();
+                          }}
+                          disabled={!canStart}
+                          className="btn-nintendo-red w-full py-3 text-base font-game font-black flex items-center justify-center gap-2 shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Play size={18} fill="currentColor" />
+                          <span>{buttonLabel}</span>
+                        </button>
+                      );
+                    })()}
                     <div className="flex items-center justify-between text-[11px] text-[#727272] px-1">
-                      <span>* 2인 이상 참여 시 대전이 활성화됩니다.</span>
+                      <span>* 2인, 3인, 4인 모두 지원됩니다 (인원수에 맞춰 18장/27장/36장 자동 조절).</span>
                       <button
                         type="button"
                         onClick={leaveRoom}
-                        className="text-rose-600 hover:underline"
+                        className="text-rose-600 hover:underline font-bold"
                       >
                         방 폭파 / 닫기
                       </button>

@@ -87,6 +87,14 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
               </span>
             </div>
             <div className="text-xs text-[#727272] flex items-center gap-2 mt-0.5">
+              <span className="font-bold text-[#e60012] bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                {roomState.players.length === 2
+                  ? '⚔️ 2인 듀얼 (총 18장 / 2개 함수)'
+                  : roomState.players.length === 3
+                  ? '🔺 3인 삼파전 (총 27장 / 3개 함수)'
+                  : '👑 4인 표준 대전 (총 36장 / 4개 함수)'}
+              </span>
+              <span>•</span>
               <span className="flex items-center gap-1 font-bold">
                 <Users size={14} className="text-[#e60012]" />
                 참여 학생 {roomState.players.length}명
@@ -140,7 +148,15 @@ export const MultiplayerGameBoard: React.FC<MultiplayerGameBoardProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div
+                className={
+                  otherPlayers.length === 1
+                    ? 'grid grid-cols-1 max-w-sm mx-auto gap-4'
+                    : otherPlayers.length === 2
+                    ? 'grid grid-cols-1 sm:grid-cols-2 max-w-2xl mx-auto gap-4'
+                    : 'grid grid-cols-1 sm:grid-cols-3 gap-4'
+                }
+              >
                 {otherPlayers.map((player) => {
                   const hasOffer = typeof player.currentOfferCount === 'number';
                   const offerMatchesMySelection =

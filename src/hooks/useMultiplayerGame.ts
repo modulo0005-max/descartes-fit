@@ -172,68 +172,94 @@ export function useMultiplayerGame() {
     [addLog]
   );
 
-  // [호스트 전용: 게임 시작 및 셔플 분배]
-  const startMultiplayerGame = useCallback(() => {
-    const current = roomStateRef.current;
-    if (current.role !== 'host') return;
+  // [호스트 전용: 2인/3인/4인 동적 스케일링 게임 시작 및 셔플 분배]
+  const startMultiplayerGame = useCallback(
+    (allowedFamilies?: FunctionFamily[]) => {
+      const current = roomStateRef.current;
+      if (current.role !== 'host') return;
 
-    // 4개 패밀리 무작위 선정
-    const allFamilies: FunctionFamily[] = [
-      'linear',
-      'quadratic',
-      'rational',
-      'irrational',
-      'cubic',
-      'exponential',
-      'logarithmic',
-      'trigonometric',
-    ];
-    const chosenFamilies = [...allFamilies].sort(() => Math.random() - 0.5).slice(0, 4);
-
-    const deck: FunctionCard[] = [];
-    chosenFamilies.forEach((fam) => {
-      deck.push(...FUNCTION_CARDS.filter((c) => c.family === fam).slice(0, 9));
-    });
-
-    // 셔플
-    for (let i = deck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [deck[i], deck[j]] = [deck[j], deck[i]];
-    }
-
-    // 각 플레이어별 9장씩 분배 및 저장
-    hostPlayerHands.current.clear();
-    hostPendingTradeOffers.current.clear();
-
-    const updatedPlayers = current.players.map((p, idx) => {
-      const playerHand = deck.slice(idx * 9, (idx + 1) * 9);
-      hostPlayerHands.current.set(p.peerId, playerHand);
-
-      // 클라이언트에게 해당 플레이어의 손패 전송
-      if (!p.isHost) {
-        peerService.sendTo(p.peerId, {
-          type: 'GAME_STARTED',
-          yourHand: playerHand,
-          activeFamilies: chosenFamilies,
-        });
+      const playerCount = current.players.length;
+      if (playerCount < 2) {
+        setErrorMessage('최소 2명 이상의 플레이어가 대기실에 접속해야 게임을 시작할 수 있습니다.');
+        return;
       }
-      return { ...p, cardCount: 9, currentOfferCount: undefined };
-    });
 
-    const hostHand = hostPlayerHands.current.get(current.myPeerId) || [];
+      // 후보 패밀리 (외부 전달값 또는 기본 8대 계열)
+      const basePool: FunctionFamily[] =
+        allowedFamilies && allowedFamilies.length >= playerCount
+          ? allowedFamilies
+          : [
+              'linear',
+              'quadratic',
+              'rational',
+              'irrational',
+              'cubic',
+              'exponential',
+              'logarithmic',
+              'trigonometric',
+            ];
 
-    setRoomState((prev) => ({
-      ...prev,
-      status: 'playing',
-      players: updatedPlayers,
-      myHand: hostHand,
-      activeFamilies: chosenFamilies,
-      winner: null,
-    }));
+      // 피트 수학 법칙: 전체 게임 덱의 함수 계열 수 = 참여 인원 수 (N명)
+      // 2인: 2개 계열 (18장 = 9×2)
+      // 3인: 3개 계열 (27장 = 9×3)
+      // 4인: 4개 계열 (36장 = 9×4)
+      const neededFamilyCount = Math.min(playerCount, 4);
+      const chosenFamilies = [...basePool]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, neededFamilyCount);
 
-    soundEngine.playCardFlip();
-    addLog('게임이 시작되었습니다! 카드를 9장씩 나누어 가졌습니다.', 'system');
-  }, [addLog]);
+      const deck: FunctionCard[] = [];
+      chosenFamilies.forEach((fam) => {
+        deck.push(...FUNCTION_CARDS.filter((c) => c.family === fam).slice(0, 9));
+      });
+
+      // Fisher-Yates 셔플
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+
+      // 각 플레이어별 9장씩 분배 및 저장
+      hostPlayerHands.current.clear();
+      hostPendingTradeOffers.current.clear();
+
+      const updatedPlayers = current.players.map((p, idx) => {
+        const playerHand = deck.slice(idx * 9, (idx + 1) * 9);
+        hostPlayerHands.current.set(p.peerId, playerHand);
+
+        // 클라이언트에게 해당 플레이어의 손패 전송
+        if (!p.isHost) {
+          peerService.sendTo(p.peerId, {
+            type: 'GAME_STARTED',
+            yourHand: playerHand,
+            activeFamilies: chosenFamilies,
+          });
+        }
+        return { ...p, cardCount: 9, currentOfferCount: undefined };
+      });
+
+      const hostHand = hostPlayerHands.current.get(current.myPeerId) || [];
+
+      setRoomState((prev) => ({
+        ...prev,
+        status: 'playing',
+        players: updatedPlayers,
+        myHand: hostHand,
+        activeFamilies: chosenFamilies,
+        winner: null,
+      }));
+
+      soundEngine.playCardFlip();
+      const modeLabel =
+        playerCount === 2
+          ? '2인 듀얼 (총 18장 / 2개 함수)'
+          : playerCount === 3
+          ? '3인 삼파전 (총 27장 / 3개 함수)'
+          : '4인 표준 대전 (총 36장 / 4개 함수)';
+      addLog(`🎮 ${modeLabel} 게임이 시작되었습니다! 카드를 9장씩 나누어 가졌습니다.`, 'system');
+    },
+    [addLog]
+  );
 
   // [카드 선택 토글]
   const toggleSelectCard = useCallback(
