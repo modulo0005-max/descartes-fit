@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { peerService } from '../services/peerService';
 import {
   MultiplayerRoomState,
+  MultiplayerGameType,
   RemotePlayer,
   NetworkMessage,
 } from '../types/multiplayer';
@@ -20,11 +21,75 @@ function generateRoomCode(): string {
 
 const AVATARS = ['🎓', '📐', '🚀', '⭐', '🦁', '🦊', '🦉', '🐱'];
 
+export const BATTLE_CONDITIONS = [
+  {
+    title: 'x = 1 대입 함숫값 f(1) 배틀!',
+    xValue: 1,
+    desc: '각 카드의 x에 1을 대입했을 때 함숫값이 더 큰 쪽이 승리합니다.',
+    evaluatorFn: (c: FunctionCard) => {
+      try {
+        return c.evaluator(1);
+      } catch {
+        return null;
+      }
+    },
+  },
+  {
+    title: 'x = 2 대입 함숫값 f(2) 배틀!',
+    xValue: 2,
+    desc: '각 카드의 x에 2를 대입했을 때 함숫값이 더 큰 쪽이 승리합니다.',
+    evaluatorFn: (c: FunctionCard) => {
+      try {
+        return c.evaluator(2);
+      } catch {
+        return null;
+      }
+    },
+  },
+  {
+    title: 'y절편 f(0) 크기 배틀!',
+    xValue: 0,
+    desc: 'y축과 만나는 교점의 y좌표(y절편)가 더 큰 쪽이 승리합니다.',
+    evaluatorFn: (c: FunctionCard) => {
+      try {
+        return c.evaluator(0);
+      } catch {
+        return null;
+      }
+    },
+  },
+  {
+    title: 'x = -1 대입 함숫값 f(-1) 배틀!',
+    xValue: -1,
+    desc: '각 카드의 x에 -1을 대입했을 때 함숫값이 더 큰 쪽이 승리합니다.',
+    evaluatorFn: (c: FunctionCard) => {
+      try {
+        return c.evaluator(-1);
+      } catch {
+        return null;
+      }
+    },
+  },
+  {
+    title: 'x = 3 대입 함숫값 f(3) 배틀!',
+    xValue: 3,
+    desc: '각 카드의 x에 3을 대입했을 때 함숫값이 더 큰 쪽이 승리합니다.',
+    evaluatorFn: (c: FunctionCard) => {
+      try {
+        return c.evaluator(3);
+      } catch {
+        return null;
+      }
+    },
+  },
+];
+
 export function useMultiplayerGame() {
   const [roomState, setRoomState] = useState<MultiplayerRoomState>({
     roomId: '',
     role: 'client',
     status: 'idle',
+    gameType: 'pit',
     players: [],
     myPeerId: '',
     myName: `학생${Math.floor(Math.random() * 90 + 10)}`,
@@ -50,6 +115,17 @@ export function useMultiplayerGame() {
   const hostPendingTradeOffers = useRef<
     Map<string, { count: number; cardIds: string[] }>
   >(new Map());
+
+  // 호스트 전용: 데카르트 X 상태
+  const hostDeckX = useRef<FunctionCard[]>([]);
+  const hostTopCardX = useRef<FunctionCard | null>(null);
+  const hostTurnPeerIdX = useRef<string>('');
+
+  // 호스트 전용: 데카르트 Y 상태
+  const hostSubmissionsY = useRef<Map<string, FunctionCard>>(new Map());
+  const hostScoresY = useRef<Record<string, number>>({});
+  const hostRoundY = useRef<number>(1);
+  const hostConditionIndexY = useRef<number>(0);
 
   const addLog = useCallback(
     (text: string, type: 'trade' | 'alert' | 'fit' | 'system' = 'trade') => {
@@ -109,7 +185,6 @@ export function useMultiplayerGame() {
         (err) => {
           console.error('Peer init error:', err);
           if (err.message.includes('taken') || err.message.includes('unavailable-id')) {
-            // 방 코드가 겹친 경우 1회 자동 재시도
             setErrorMessage('기존 룸 코드가 점유되어 있어 새 코드로 재시도합니다...');
             setTimeout(() => createRoom(customName), 1000);
           } else {
@@ -148,7 +223,6 @@ export function useMultiplayerGame() {
           peerService.connectToHost(
             hostPeerId,
             () => {
-              // 연결 성공 시 호스트에게 내 정보 전송
               peerService.sendTo(hostPeerId, {
                 type: 'JOIN',
                 name,
@@ -172,9 +246,12 @@ export function useMultiplayerGame() {
     [addLog]
   );
 
-  // [호스트 전용: 2인/3인/4인 동적 스케일링 게임 시작 및 셔플 분배]
+  // [호스트 전용: 3대 모드 (핏 / X / Y) 게임 시작 및 셔플 분배]
   const startMultiplayerGame = useCallback(
-    (allowedFamilies?: FunctionFamily[]) => {
+    (
+      gameType: MultiplayerGameType = 'pit',
+      allowedFamilies?: FunctionFamily[]
+    ) => {
       const current = roomStateRef.current;
       if (current.role !== 'host') return;
 
@@ -184,9 +261,8 @@ export function useMultiplayerGame() {
         return;
       }
 
-      // 후보 패밀리 (외부 전달값 또는 기본 8대 계열)
       const basePool: FunctionFamily[] =
-        allowedFamilies && allowedFamilies.length >= playerCount
+        allowedFamilies && allowedFamilies.length >= 2
           ? allowedFamilies
           : [
               'linear',
@@ -199,103 +275,596 @@ export function useMultiplayerGame() {
               'trigonometric',
             ];
 
-      // 피트 수학 법칙: 전체 게임 덱의 함수 계열 수 = 참여 인원 수 (N명)
-      // 2인: 2개 계열 (18장 = 9×2)
-      // 3인: 3개 계열 (27장 = 9×3)
-      // 4인: 4개 계열 (36장 = 9×4)
-      const neededFamilyCount = Math.min(playerCount, 4);
-      const chosenFamilies = [...basePool]
-        .sort(() => Math.random() - 0.5)
-        .slice(0, neededFamilyCount);
-
-      const deck: FunctionCard[] = [];
-      chosenFamilies.forEach((fam) => {
-        deck.push(...FUNCTION_CARDS.filter((c) => c.family === fam).slice(0, 9));
-      });
-
-      // Fisher-Yates 셔플
-      for (let i = deck.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [deck[i], deck[j]] = [deck[j], deck[i]];
-      }
-
-      // 각 플레이어별 9장씩 분배 및 저장
       hostPlayerHands.current.clear();
       hostPendingTradeOffers.current.clear();
 
-      const updatedPlayers = current.players.map((p, idx) => {
-        const playerHand = deck.slice(idx * 9, (idx + 1) * 9);
-        hostPlayerHands.current.set(p.peerId, playerHand);
+      // ==============================================================
+      // 1. 데카르트 핏 모드 (실시간 교환 / 세트 컬렉션)
+      // ==============================================================
+      if (gameType === 'pit') {
+        const neededFamilyCount = Math.min(playerCount, 4);
+        const chosenFamilies = [...basePool]
+          .sort(() => Math.random() - 0.5)
+          .slice(0, neededFamilyCount);
 
-        // 클라이언트에게 해당 플레이어의 손패 전송
-        if (!p.isHost) {
-          peerService.sendTo(p.peerId, {
-            type: 'GAME_STARTED',
-            yourHand: playerHand,
-            activeFamilies: chosenFamilies,
-          });
+        const deck: FunctionCard[] = [];
+        chosenFamilies.forEach((fam) => {
+          deck.push(...FUNCTION_CARDS.filter((c) => c.family === fam).slice(0, 9));
+        });
+
+        for (let i = deck.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [deck[i], deck[j]] = [deck[j], deck[i]];
         }
-        return { ...p, cardCount: 9, currentOfferCount: undefined };
-      });
 
-      const hostHand = hostPlayerHands.current.get(current.myPeerId) || [];
+        const updatedPlayers = current.players.map((p, idx) => {
+          const playerHand = deck.slice(idx * 9, (idx + 1) * 9);
+          hostPlayerHands.current.set(p.peerId, playerHand);
 
-      setRoomState((prev) => ({
-        ...prev,
-        status: 'playing',
-        players: updatedPlayers,
-        myHand: hostHand,
-        activeFamilies: chosenFamilies,
-        winner: null,
-      }));
+          if (!p.isHost) {
+            peerService.sendTo(p.peerId, {
+              type: 'GAME_STARTED',
+              gameType: 'pit',
+              yourHand: playerHand,
+              activeFamilies: chosenFamilies,
+            });
+          }
+          return { ...p, cardCount: 9, currentOfferCount: undefined };
+        });
 
-      soundEngine.playCardFlip();
-      const modeLabel =
-        playerCount === 2
-          ? '2인 듀얼 (총 18장 / 2개 함수)'
-          : playerCount === 3
-          ? '3인 삼파전 (총 27장 / 3개 함수)'
-          : '4인 표준 대전 (총 36장 / 4개 함수)';
-      addLog(`🎮 ${modeLabel} 게임이 시작되었습니다! 카드를 9장씩 나누어 가졌습니다.`, 'system');
+        const hostHand = hostPlayerHands.current.get(current.myPeerId) || [];
+
+        setRoomState((prev) => ({
+          ...prev,
+          status: 'playing',
+          gameType: 'pit',
+          players: updatedPlayers,
+          myHand: hostHand,
+          activeFamilies: chosenFamilies,
+          winner: null,
+        }));
+
+        soundEngine.playCardFlip();
+        const modeLabel =
+          playerCount === 2
+            ? '2인 듀얼 (총 18장 / 2개 함수)'
+            : playerCount === 3
+            ? '3인 삼파전 (총 27장 / 3개 함수)'
+            : '4인 표준 대전 (총 36장 / 4개 함수)';
+        addLog(`🎮 [데카르트 핏] ${modeLabel} 게임이 시작되었습니다! 카드를 9장씩 나누어 가졌습니다.`, 'system');
+      }
+
+      // ==============================================================
+      // 2. 데카르트 X 모드 (성질 털기 배틀 / 원카드·우노 스타일)
+      // ==============================================================
+      else if (gameType === 'descartes_x') {
+        const pool = FUNCTION_CARDS.filter((c) => basePool.includes(c.family));
+        const deck = [...pool].sort(() => Math.random() - 0.5);
+
+        // 각 플레이어에게 5장씩 배분
+        current.players.forEach((p, idx) => {
+          const hand = deck.slice(idx * 5, (idx + 1) * 5);
+          hostPlayerHands.current.set(p.peerId, hand);
+        });
+
+        const topCard = deck[playerCount * 5];
+        const remainingDeck = deck.slice(playerCount * 5 + 1);
+
+        hostTopCardX.current = topCard;
+        hostDeckX.current = remainingDeck;
+        hostTurnPeerIdX.current = current.myPeerId; // 호스트 먼저 시작
+
+        const playerCardCounts = current.players.map((p) => ({
+          peerId: p.peerId,
+          count: 5,
+        }));
+
+        const updatedPlayers = current.players.map((p) => ({
+          ...p,
+          cardCount: 5,
+        }));
+
+        current.players.forEach((p) => {
+          if (!p.isHost) {
+            peerService.sendTo(p.peerId, {
+              type: 'GAME_STARTED',
+              gameType: 'descartes_x',
+              yourHand: hostPlayerHands.current.get(p.peerId) || [],
+              activeFamilies: basePool,
+              topCard,
+              currentTurnPeerId: hostTurnPeerIdX.current,
+              deckCount: remainingDeck.length,
+            });
+          }
+        });
+
+        const hostHand = hostPlayerHands.current.get(current.myPeerId) || [];
+
+        setRoomState((prev) => ({
+          ...prev,
+          status: 'playing',
+          gameType: 'descartes_x',
+          players: updatedPlayers,
+          myHand: hostHand,
+          activeFamilies: basePool,
+          winner: null,
+          xState: {
+            topCard,
+            currentTurnPeerId: hostTurnPeerIdX.current,
+            deckCount: remainingDeck.length,
+            playerCardCounts,
+          },
+        }));
+
+        soundEngine.playCardFlip();
+        addLog(`🃏 [데카르트 X] 성질 털기 배틀이 시작되었습니다! 카드를 5장씩 받았습니다.`, 'system');
+      }
+
+      // ==============================================================
+      // 3. 데카르트 Y 모드 (좌표 함숫값 대결 / 탑트럼프 스타일)
+      // ==============================================================
+      else if (gameType === 'descartes_y') {
+        const pool = FUNCTION_CARDS.filter((c) => basePool.includes(c.family));
+        const deck = [...pool].sort(() => Math.random() - 0.5);
+
+        // 각 플레이어에게 5장씩 배분
+        current.players.forEach((p, idx) => {
+          const hand = deck.slice(idx * 5, (idx + 1) * 5);
+          hostPlayerHands.current.set(p.peerId, hand);
+        });
+
+        const initialScores: Record<string, number> = {};
+        current.players.forEach((p) => {
+          initialScores[p.peerId] = 0;
+        });
+
+        hostScoresY.current = initialScores;
+        hostRoundY.current = 1;
+        hostConditionIndexY.current = Math.floor(Math.random() * BATTLE_CONDITIONS.length);
+        hostSubmissionsY.current.clear();
+
+        const updatedPlayers = current.players.map((p) => ({
+          ...p,
+          cardCount: 5,
+        }));
+
+        current.players.forEach((p) => {
+          if (!p.isHost) {
+            peerService.sendTo(p.peerId, {
+              type: 'GAME_STARTED',
+              gameType: 'descartes_y',
+              yourHand: hostPlayerHands.current.get(p.peerId) || [],
+              activeFamilies: basePool,
+              conditionIndex: hostConditionIndexY.current,
+            });
+          }
+        });
+
+        const hostHand = hostPlayerHands.current.get(current.myPeerId) || [];
+
+        setRoomState((prev) => ({
+          ...prev,
+          status: 'playing',
+          gameType: 'descartes_y',
+          players: updatedPlayers,
+          myHand: hostHand,
+          activeFamilies: basePool,
+          winner: null,
+          yState: {
+            round: 1,
+            conditionIndex: hostConditionIndexY.current,
+            hasSubmitted: false,
+            submittedCard: null,
+            roundResult: null,
+            scores: initialScores,
+          },
+        }));
+
+        soundEngine.playCardFlip();
+        addLog(`⚔️ [데카르트 Y] 좌표 함숫값 배틀이 시작되었습니다! 각자 카드를 5장씩 받았습니다.`, 'system');
+      }
     },
     [addLog]
   );
 
-  // [카드 선택 토글]
-  const toggleSelectCard = useCallback(
+  // [데카르트 X 액션: 카드 내기]
+  const playCardX = useCallback(
     (card: FunctionCard) => {
-      setSelectedCardIds((prev) => {
-        if (prev.includes(card.id)) {
-          return prev.filter((id) => id !== card.id);
-        }
-        if (prev.length >= 3) return prev;
+      const current = roomStateRef.current;
+      if (current.gameType !== 'descartes_x' || !current.xState) return;
+      if (current.xState.currentTurnPeerId !== current.myPeerId) {
+        addLog('⚠️ 아직 내 차례가 아닙니다!', 'alert');
+        return;
+      }
 
-        // 동일 계열 검증 (피트 룰: 한 번에 내놓는 카드는 같은 계열이어야 함)
-        if (prev.length > 0) {
-          const first = roomStateRef.current.myHand.find((c) => c.id === prev[0]);
-          if (first && first.family !== card.family) {
-            return [card.id];
-          }
-        }
-        soundEngine.playCardFlip();
-        return [...prev, card.id];
-      });
+      const topCard = current.xState.topCard;
+      if (!topCard) return;
+
+      // 공통 성질 검사 (계열이 같거나, 성질 태그가 최소 1개 이상 겹치는지)
+      const hasCommon =
+        card.family === topCard.family ||
+        card.properties.some((p) => topCard.properties.includes(p));
+
+      if (!hasCommon) {
+        soundEngine.playWrong();
+        addLog('❌ 바닥 카드와 공통 성질(또는 같은 계열)이 없습니다!', 'alert');
+        return;
+      }
+
+      if (current.role === 'client') {
+        // 호스트에게 카드 내기 요청 전송
+        peerService.broadcast({
+          type: 'PLAY_CARD_X',
+          peerId: current.myPeerId,
+          card,
+        });
+        // 내 손패 즉시 선반영
+        setRoomState((prev) => ({
+          ...prev,
+          myHand: prev.myHand.filter((c) => c.id !== card.id),
+        }));
+      } else {
+        // 호스트 자신이 직접 카드 내기
+        executePlayCardX(current.myPeerId, card);
+      }
     },
-    []
+    [addLog]
   );
 
-  // [호가 제시 ("N장 교환!")]
+  // [데카르트 X 액션: 1장 드로우 & 턴 넘김]
+  const drawCardX = useCallback(() => {
+    const current = roomStateRef.current;
+    if (current.gameType !== 'descartes_x' || !current.xState) return;
+    if (current.xState.currentTurnPeerId !== current.myPeerId) {
+      addLog('⚠️ 아직 내 차례가 아닙니다!', 'alert');
+      return;
+    }
+
+    if (current.role === 'client') {
+      peerService.broadcast({
+        type: 'DRAW_CARD_X',
+        peerId: current.myPeerId,
+      });
+    } else {
+      executeDrawCardX(current.myPeerId);
+    }
+  }, [addLog]);
+
+  // [호스트 내부: X 카드 내기 실행 및 다음 턴 전파]
+  const executePlayCardX = (peerId: string, card: FunctionCard) => {
+    const current = roomStateRef.current;
+    const hand = hostPlayerHands.current.get(peerId) || [];
+    const newHand = hand.filter((c) => c.id !== card.id);
+    hostPlayerHands.current.set(peerId, newHand);
+
+    hostTopCardX.current = card;
+    const playerObj = current.players.find((p) => p.peerId === peerId);
+    const pName = playerObj?.name || '플레이어';
+
+    soundEngine.playTradeSuccess();
+
+    // 승리 조건 검사: 손패 0장
+    if (newHand.length === 0) {
+      soundEngine.playCorrect();
+      peerService.broadcast({
+        type: 'GAME_OVER_X',
+        winnerPeerId: peerId,
+        winnerName: pName,
+      });
+      setRoomState((prev) => ({
+        ...prev,
+        status: 'game_over',
+        winner: pName,
+      }));
+      addLog(`🎉 [VICTORY] ${pName} 님이 손패를 모두 털어내어 승리했습니다!`, 'fit');
+      return;
+    }
+
+    // 다음 턴 플레이어 계산
+    const playerIdx = current.players.findIndex((p) => p.peerId === peerId);
+    const nextIdx = (playerIdx + 1) % current.players.length;
+    const nextTurnPeerId = current.players[nextIdx].peerId;
+    hostTurnPeerIdX.current = nextTurnPeerId;
+
+    const playerCardCounts = current.players.map((p) => ({
+      peerId: p.peerId,
+      count: hostPlayerHands.current.get(p.peerId)?.length || 0,
+    }));
+
+    const logText = `🃏 [${pName}] 님이 [${card.expression}] 카드를 냈습니다! 다음 차례로 넘어갑니다.`;
+
+    peerService.broadcast({
+      type: 'SYNC_STATE_X',
+      topCard: card,
+      currentTurnPeerId: nextTurnPeerId,
+      deckCount: hostDeckX.current.length,
+      playerCardCounts,
+      logText,
+    });
+
+    if (peerId === current.myPeerId) {
+      setRoomState((prev) => ({
+        ...prev,
+        myHand: newHand,
+        xState: {
+          topCard: card,
+          currentTurnPeerId: nextTurnPeerId,
+          deckCount: hostDeckX.current.length,
+          playerCardCounts,
+        },
+      }));
+    } else {
+      setRoomState((prev) => ({
+        ...prev,
+        xState: {
+          topCard: card,
+          currentTurnPeerId: nextTurnPeerId,
+          deckCount: hostDeckX.current.length,
+          playerCardCounts,
+        },
+      }));
+    }
+    addLog(logText, 'trade');
+  };
+
+  // [호스트 내부: X 드로우 실행]
+  const executeDrawCardX = (peerId: string) => {
+    const current = roomStateRef.current;
+    if (hostDeckX.current.length === 0) {
+      addLog('덱이 모두 소진되었습니다. 다음 차례로 넘깁니다.', 'alert');
+    } else {
+      const drawn = hostDeckX.current[0];
+      hostDeckX.current = hostDeckX.current.slice(1);
+      const hand = hostPlayerHands.current.get(peerId) || [];
+      const newHand = [...hand, drawn];
+      hostPlayerHands.current.set(peerId, newHand);
+
+      if (peerId === current.myPeerId) {
+        setRoomState((prev) => ({ ...prev, myHand: newHand }));
+      } else {
+        peerService.sendTo(peerId, {
+          type: 'DRAW_ACK_X',
+          drawnCard: drawn,
+        });
+      }
+    }
+
+    const playerIdx = current.players.findIndex((p) => p.peerId === peerId);
+    const nextIdx = (playerIdx + 1) % current.players.length;
+    const nextTurnPeerId = current.players[nextIdx].peerId;
+    hostTurnPeerIdX.current = nextTurnPeerId;
+
+    const playerObj = current.players.find((p) => p.peerId === peerId);
+    const pName = playerObj?.name || '플레이어';
+
+    const playerCardCounts = current.players.map((p) => ({
+      peerId: p.peerId,
+      count: hostPlayerHands.current.get(p.peerId)?.length || 0,
+    }));
+
+    const logText = `📥 [${pName}] 님이 덱에서 1장을 뽑고 차례를 넘겼습니다.`;
+
+    if (hostTopCardX.current) {
+      peerService.broadcast({
+        type: 'SYNC_STATE_X',
+        topCard: hostTopCardX.current,
+        currentTurnPeerId: nextTurnPeerId,
+        deckCount: hostDeckX.current.length,
+        playerCardCounts,
+        logText,
+      });
+
+      setRoomState((prev) => ({
+        ...prev,
+        xState: {
+          topCard: hostTopCardX.current,
+          currentTurnPeerId: nextTurnPeerId,
+          deckCount: hostDeckX.current.length,
+          playerCardCounts,
+        },
+      }));
+    }
+    addLog(logText, 'system');
+  };
+
+  // [데카르트 Y 액션: 라운드 출전 카드 제출]
+  const submitCardY = useCallback(
+    (card: FunctionCard) => {
+      const current = roomStateRef.current;
+      if (current.gameType !== 'descartes_y' || !current.yState) return;
+      if (current.yState.hasSubmitted) return;
+
+      // 손패에서 카드 제거
+      const nextHand = current.myHand.filter((c) => c.id !== card.id);
+      setRoomState((prev) => ({
+        ...prev,
+        myHand: nextHand,
+        yState: prev.yState
+          ? { ...prev.yState, hasSubmitted: true, submittedCard: card }
+          : undefined,
+      }));
+
+      soundEngine.playCardFlip();
+      addLog(`🎯 [${card.expression}] 카드를 출전시켰습니다. 상대방 제출 대기 중...`, 'system');
+
+      if (current.role === 'client') {
+        peerService.broadcast({
+          type: 'SUBMIT_CARD_Y',
+          peerId: current.myPeerId,
+          card,
+        });
+      } else {
+        hostSubmissionsY.current.set(current.myPeerId, card);
+        checkAllSubmissionsY();
+      }
+    },
+    [addLog]
+  );
+
+  // [호스트 내부: Y 전원 제출 확인 및 라운드 결과 산정]
+  const checkAllSubmissionsY = () => {
+    const current = roomStateRef.current;
+    if (hostSubmissionsY.current.size < current.players.length) {
+      return; // 아직 모든 플레이어가 제출하지 않음
+    }
+
+    const condition = BATTLE_CONDITIONS[hostConditionIndexY.current];
+    const submissions: {
+      peerId: string;
+      name: string;
+      avatar: string;
+      card: FunctionCard;
+      value: number | null;
+    }[] = [];
+
+    current.players.forEach((p) => {
+      const card = hostSubmissionsY.current.get(p.peerId);
+      if (card) {
+        const val = condition.evaluatorFn(card);
+        submissions.push({
+          peerId: p.peerId,
+          name: p.name,
+          avatar: p.avatar,
+          card,
+          value: val,
+        });
+      }
+    });
+
+    // 최고 함숫값 판정
+    let highestVal = -Infinity;
+    let roundWinnerPeerId: string | 'tie' = 'tie';
+
+    submissions.forEach((s) => {
+      if (s.value !== null && s.value > highestVal) {
+        highestVal = s.value;
+        roundWinnerPeerId = s.peerId;
+      }
+    });
+
+    // 점수 업데이트
+    const updatedScores = { ...hostScoresY.current };
+    if (roundWinnerPeerId !== 'tie') {
+      updatedScores[roundWinnerPeerId] = (updatedScores[roundWinnerPeerId] || 0) + 1;
+      hostScoresY.current = updatedScores;
+    }
+
+    const winnerObj = current.players.find((p) => p.peerId === roundWinnerPeerId);
+    const winnerName = winnerObj ? winnerObj.name : '무승부';
+
+    const resultPayload = {
+      round: hostRoundY.current,
+      conditionIndex: hostConditionIndexY.current,
+      submissions,
+      winnerPeerId: roundWinnerPeerId,
+    };
+
+    peerService.broadcast({
+      type: 'ROUND_RESULT_Y',
+      round: hostRoundY.current,
+      conditionIndex: hostConditionIndexY.current,
+      submissions,
+      winnerPeerId: roundWinnerPeerId,
+      scores: updatedScores,
+    });
+
+    setRoomState((prev) => ({
+      ...prev,
+      yState: prev.yState
+        ? {
+            ...prev.yState,
+            roundResult: resultPayload,
+            scores: updatedScores,
+          }
+        : undefined,
+    }));
+
+    soundEngine.playTradeSuccess();
+    addLog(`🏆 라운드 ${hostRoundY.current} 승자: [${winnerName}] (값: ${highestVal})`, 'fit');
+
+    // 4초 후 다음 라운드 또는 최종 결과 발표
+    setTimeout(() => {
+      if (hostRoundY.current >= 5) {
+        // 게임 오버: 최고 득점자 선언
+        let topScore = -1;
+        let finalWinnerName = '무승부';
+        Object.entries(updatedScores).forEach(([pId, score]) => {
+          if (score > topScore) {
+            topScore = score;
+            const p = current.players.find((pl) => pl.peerId === pId);
+            finalWinnerName = p ? p.name : '플레이어';
+          }
+        });
+
+        peerService.broadcast({
+          type: 'GAME_OVER_Y',
+          winnerName: finalWinnerName,
+          finalScores: updatedScores,
+        });
+
+        soundEngine.playCorrect();
+        setRoomState((prev) => ({
+          ...prev,
+          status: 'game_over',
+          winner: finalWinnerName,
+        }));
+        addLog(`🎉 [최종 우승] 5라운드 승부 끝에 [${finalWinnerName}] 님이 승리했습니다!`, 'fit');
+      } else {
+        // 다음 라운드
+        hostRoundY.current += 1;
+        hostConditionIndexY.current = Math.floor(Math.random() * BATTLE_CONDITIONS.length);
+        hostSubmissionsY.current.clear();
+
+        peerService.broadcast({
+          type: 'NEXT_ROUND_Y',
+          round: hostRoundY.current,
+          conditionIndex: hostConditionIndexY.current,
+        });
+
+        setRoomState((prev) => ({
+          ...prev,
+          yState: prev.yState
+            ? {
+                ...prev.yState,
+                round: hostRoundY.current,
+                conditionIndex: hostConditionIndexY.current,
+                hasSubmitted: false,
+                submittedCard: null,
+                roundResult: null,
+              }
+            : undefined,
+        }));
+      }
+    }, 4500);
+  };
+
+  // [피트 전용: 카드 선택 토글]
+  const toggleSelectCard = useCallback((card: FunctionCard) => {
+    setSelectedCardIds((prev) => {
+      if (prev.includes(card.id)) {
+        return prev.filter((id) => id !== card.id);
+      }
+      if (prev.length >= 3) return prev;
+
+      if (prev.length > 0) {
+        const first = roomStateRef.current.myHand.find((c) => c.id === prev[0]);
+        if (first && first.family !== card.family) {
+          return [card.id];
+        }
+      }
+      soundEngine.playCardFlip();
+      return [...prev, card.id];
+    });
+  }, []);
+
+  // [피트 전용: 호가 제시]
   const broadcastOffer = useCallback(
     (count: number) => {
       const current = roomStateRef.current;
       const selected = selectedCardIdsRef.current;
-
-      if (selected.length !== count) {
-        return;
-      }
+      if (selected.length !== count) return;
 
       if (current.role === 'host') {
-        // 호스트 오퍼 저장
         hostPendingTradeOffers.current.set(current.myPeerId, {
           count,
           cardIds: selected,
@@ -310,7 +879,6 @@ export function useMultiplayerGame() {
           hostName: current.myName,
         });
       } else {
-        // 클라이언트는 호스트에게 오퍼 등록 요청
         peerService.broadcast({
           type: 'OFFER_TRADE',
           count,
@@ -324,7 +892,7 @@ export function useMultiplayerGame() {
     [addLog]
   );
 
-  // [호가 취소]
+  // [피트 전용: 호가 취소]
   const cancelOffer = useCallback(() => {
     const current = roomStateRef.current;
     if (current.role === 'host') {
@@ -348,7 +916,7 @@ export function useMultiplayerGame() {
     addLog(`교환 외치기를 취소했습니다.`, 'system');
   }, [addLog]);
 
-  // [호스트 내부 공통 교환 실행 헬퍼]
+  // [피트 전용: 호스트 내부 공통 교환 실행 헬퍼]
   const executeHostTrade = useCallback(
     (peerA: string, peerB: string, count: number) => {
       const current = roomStateRef.current;
@@ -357,25 +925,12 @@ export function useMultiplayerGame() {
       const offerA = hostPendingTradeOffers.current.get(peerA);
       const offerB = hostPendingTradeOffers.current.get(peerB);
 
-      if (!handA || !handB || !offerA || !offerB) {
-        console.warn('Trade execution failed: missing hand or offer', { peerA, peerB, offerA, offerB });
-        return;
-      }
-
-      if (offerA.count !== count || offerB.count !== count) {
-        console.warn('Trade count mismatch', offerA.count, offerB.count, count);
-        return;
-      }
+      if (!handA || !handB || !offerA || !offerB) return;
+      if (offerA.count !== count || offerB.count !== count) return;
 
       const cardsA = handA.filter((c) => offerA.cardIds.includes(c.id));
       const cardsB = handB.filter((c) => offerB.cardIds.includes(c.id));
 
-      if (cardsA.length !== count || cardsB.length !== count) {
-        console.warn('Offered card items length mismatch');
-        return;
-      }
-
-      // 맞교환 적용
       const newHandA = [...handA.filter((c) => !offerA.cardIds.includes(c.id)), ...cardsB];
       const newHandB = [...handB.filter((c) => !offerB.cardIds.includes(c.id)), ...cardsA];
 
@@ -389,14 +944,12 @@ export function useMultiplayerGame() {
       const nameA = playerAObj?.name || '플레이어A';
       const nameB = playerBObj?.name || '플레이어B';
 
-      // 플레이어 목록에서 오퍼 제거
       const updatedPlayers = current.players.map((p) =>
         p.peerId === peerA || p.peerId === peerB
           ? { ...p, currentOfferCount: undefined }
           : p
       );
 
-      // A가 호스트인 경우
       if (peerA === current.myPeerId) {
         setRoomState((prev) => ({
           ...prev,
@@ -414,7 +967,6 @@ export function useMultiplayerGame() {
         });
       }
 
-      // B가 호스트인 경우
       if (peerB === current.myPeerId) {
         setRoomState((prev) => ({
           ...prev,
@@ -432,7 +984,6 @@ export function useMultiplayerGame() {
         });
       }
 
-      // 전체 참여자에게 로비 갱신 및 로그 전파
       peerService.broadcast({
         type: 'LOBBY_UPDATE',
         players: updatedPlayers,
@@ -450,7 +1001,7 @@ export function useMultiplayerGame() {
     [addLog]
   );
 
-  // [상대방과의 교환 요청]
+  // [피트 전용: 상대방과의 교환 요청]
   const acceptTradeFromPeer = useCallback(
     (targetPeerId: string) => {
       const current = roomStateRef.current;
@@ -464,7 +1015,6 @@ export function useMultiplayerGame() {
       }
 
       if (current.role === 'client') {
-        // 호스트에게 교환 중개 요청 전송
         peerService.broadcast({
           type: 'REQUEST_TRADE',
           requesterPeerId: current.myPeerId,
@@ -473,7 +1023,6 @@ export function useMultiplayerGame() {
           cardIds: selected,
         });
       } else {
-        // 호스트 자신이 직접 교환 대상자인 경우
         hostPendingTradeOffers.current.set(current.myPeerId, {
           count: selected.length,
           cardIds: selected,
@@ -484,12 +1033,11 @@ export function useMultiplayerGame() {
     [addLog, executeHostTrade]
   );
 
-  // [황금 종 치기 ("데카르트 핏!")]
+  // [피트 전용: 황금 종 치기 ("데카르트 핏!")]
   const ringMultiplayerBell = useCallback(() => {
     const current = roomStateRef.current;
     const hand = current.myHand;
 
-    // 9장이 전부 같은 계열인지 검사
     const isWin =
       hand.length === 9 && hand.every((c) => c.family === hand[0].family);
 
@@ -525,12 +1073,11 @@ export function useMultiplayerGame() {
 
       switch (message.type) {
         case 'JOIN': {
-          // 호스트만 수신: 새 참가자 추가
           if (current.role !== 'host') return;
           setRoomState((prev) => {
             const exists = prev.players.some((p) => p.peerId === senderPeerId);
             if (exists) return prev;
-            if (prev.players.length >= 4) return prev; // 최대 4인
+            if (prev.players.length >= 4) return prev;
 
             const newPlayer: RemotePlayer = {
               peerId: senderPeerId,
@@ -543,7 +1090,6 @@ export function useMultiplayerGame() {
 
             const updatedPlayers = [...prev.players, newPlayer];
 
-            // 참가자에게 접속 확인 메시지 전송
             peerService.sendTo(senderPeerId, {
               type: 'JOIN_ACK',
               roomId: prev.roomId,
@@ -551,7 +1097,6 @@ export function useMultiplayerGame() {
               hostName: prev.myName,
             });
 
-            // 전체 참가자에게 로비 업데이트 브로드캐스트
             peerService.broadcast({
               type: 'LOBBY_UPDATE',
               players: updatedPlayers,
@@ -565,7 +1110,6 @@ export function useMultiplayerGame() {
         }
 
         case 'JOIN_ACK': {
-          // 클라이언트 수신: 접속 성공 확인
           setRoomState((prev) => ({
             ...prev,
             roomId: message.roomId,
@@ -588,17 +1132,37 @@ export function useMultiplayerGame() {
           setRoomState((prev) => ({
             ...prev,
             status: 'playing',
+            gameType: message.gameType,
             myHand: message.yourHand,
             activeFamilies: message.activeFamilies,
             winner: null,
+            xState:
+              message.gameType === 'descartes_x' && message.topCard
+                ? {
+                    topCard: message.topCard,
+                    currentTurnPeerId: message.currentTurnPeerId || '',
+                    deckCount: message.deckCount || 0,
+                    playerCardCounts: prev.players.map((p) => ({ peerId: p.peerId, count: 5 })),
+                  }
+                : undefined,
+            yState:
+              message.gameType === 'descartes_y' && typeof message.conditionIndex === 'number'
+                ? {
+                    round: 1,
+                    conditionIndex: message.conditionIndex,
+                    hasSubmitted: false,
+                    submittedCard: null,
+                    roundResult: null,
+                    scores: {},
+                  }
+                : undefined,
           }));
           soundEngine.playCardFlip();
-          addLog('게임이 시작되었습니다! 카드를 9장씩 나누어 받았습니다.', 'system');
           break;
         }
 
+        // --- 피트 모드 ---
         case 'OFFER_TRADE': {
-          // 호스트 수신: 클라이언트의 오퍼 등록
           if (current.role === 'host') {
             hostPendingTradeOffers.current.set(message.offerId, {
               count: message.count,
@@ -624,7 +1188,6 @@ export function useMultiplayerGame() {
         }
 
         case 'CANCEL_OFFER': {
-          // 호스트 수신: 클라이언트의 오퍼 취소
           if (current.role === 'host') {
             hostPendingTradeOffers.current.delete(message.peerId);
             const updated = current.players.map((p) =>
@@ -641,14 +1204,11 @@ export function useMultiplayerGame() {
         }
 
         case 'REQUEST_TRADE': {
-          // 호스트 수신: 클라이언트의 교환 요청 중개
           if (current.role === 'host') {
-            // 요청자 오퍼 등록
             hostPendingTradeOffers.current.set(message.requesterPeerId, {
               count: message.count,
               cardIds: message.cardIds,
             });
-            // 즉시 맞교환 실행
             executeHostTrade(message.requesterPeerId, message.targetPeerId, message.count);
           }
           break;
@@ -680,6 +1240,120 @@ export function useMultiplayerGame() {
           break;
         }
 
+        // --- 데카르트 X 모드 ---
+        case 'PLAY_CARD_X': {
+          if (current.role === 'host') {
+            executePlayCardX(message.peerId, message.card);
+          }
+          break;
+        }
+
+        case 'DRAW_CARD_X': {
+          if (current.role === 'host') {
+            executeDrawCardX(message.peerId);
+          }
+          break;
+        }
+
+        case 'DRAW_ACK_X': {
+          setRoomState((prev) => ({
+            ...prev,
+            myHand: [...prev.myHand, message.drawnCard],
+          }));
+          soundEngine.playCardFlip();
+          break;
+        }
+
+        case 'SYNC_STATE_X': {
+          setRoomState((prev) => ({
+            ...prev,
+            xState: {
+              topCard: message.topCard,
+              currentTurnPeerId: message.currentTurnPeerId,
+              deckCount: message.deckCount,
+              playerCardCounts: message.playerCardCounts,
+            },
+          }));
+          soundEngine.playCardFlip();
+          addLog(message.logText, 'trade');
+          break;
+        }
+
+        case 'GAME_OVER_X': {
+          soundEngine.playCorrect();
+          setRoomState((prev) => ({
+            ...prev,
+            status: 'game_over',
+            winner: message.winnerName,
+          }));
+          addLog(`🎉 [데카르트 X] ${message.winnerName} 님이 손패를 모두 털어내어 승리했습니다!`, 'fit');
+          break;
+        }
+
+        // --- 데카르트 Y 모드 ---
+        case 'SUBMIT_CARD_Y': {
+          if (current.role === 'host') {
+            hostSubmissionsY.current.set(message.peerId, message.card);
+            checkAllSubmissionsY();
+          }
+          break;
+        }
+
+        case 'ROUND_RESULT_Y': {
+          setRoomState((prev) => ({
+            ...prev,
+            yState: prev.yState
+              ? {
+                  ...prev.yState,
+                  roundResult: {
+                    round: message.round,
+                    conditionIndex: message.conditionIndex,
+                    submissions: message.submissions,
+                    winnerPeerId: message.winnerPeerId,
+                  },
+                  scores: message.scores,
+                }
+              : undefined,
+          }));
+          soundEngine.playTradeSuccess();
+          break;
+        }
+
+        case 'NEXT_ROUND_Y': {
+          setRoomState((prev) => ({
+            ...prev,
+            yState: prev.yState
+              ? {
+                  ...prev.yState,
+                  round: message.round,
+                  conditionIndex: message.conditionIndex,
+                  hasSubmitted: false,
+                  submittedCard: null,
+                  roundResult: null,
+                }
+              : undefined,
+          }));
+          soundEngine.playCardFlip();
+          break;
+        }
+
+        case 'GAME_OVER_Y': {
+          soundEngine.playCorrect();
+          setRoomState((prev) => ({
+            ...prev,
+            status: 'game_over',
+            winner: message.winnerName,
+            yState: prev.yState
+              ? {
+                  ...prev.yState,
+                  scores: message.finalScores,
+                }
+              : undefined,
+          }));
+          addLog(`🎉 [데카르트 Y] 최종 우승: [${message.winnerName}] 님!`, 'fit');
+          break;
+        }
+
         case 'LOG_MESSAGE': {
           addLog(message.text, message.logType || 'trade');
           break;
@@ -703,9 +1377,7 @@ export function useMultiplayerGame() {
       addLog(`한 플레이어의 연결이 끊어졌습니다.`, 'alert');
     });
 
-    return () => {
-      // 정리
-    };
+    return () => {};
   }, [addLog, executeHostTrade]);
 
   return {
@@ -715,15 +1387,29 @@ export function useMultiplayerGame() {
     createRoom,
     joinRoom,
     startMultiplayerGame,
+    // 피트 모드
     toggleSelectCard,
     broadcastOffer,
     cancelOffer,
     acceptTradeFromPeer,
     ringMultiplayerBell,
+    // 데카르트 X 모드
+    playCardX,
+    drawCardX,
+    // 데카르트 Y 모드
+    submitCardY,
     setMyName: (name: string) => setRoomState((prev) => ({ ...prev, myName: name })),
     leaveRoom: () => {
       peerService.destroy();
-      setRoomState((prev) => ({ ...prev, status: 'idle', roomId: '', players: [], myHand: [] }));
+      setRoomState((prev) => ({
+        ...prev,
+        status: 'idle',
+        roomId: '',
+        players: [],
+        myHand: [],
+        xState: undefined,
+        yState: undefined,
+      }));
       setSelectedCardIds([]);
     },
   };

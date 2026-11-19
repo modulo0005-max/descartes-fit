@@ -12,6 +12,8 @@ import { CurriculumModal } from './components/layout/CurriculumModal';
 import { InteractiveTutorialModal } from './components/tutorial/InteractiveTutorialModal';
 import { MultiplayerLobbyModal } from './components/multiplayer/MultiplayerLobbyModal';
 import { MultiplayerGameBoard } from './components/multiplayer/MultiplayerGameBoard';
+import { MultiplayerXBoard } from './components/multiplayer/MultiplayerXBoard';
+import { MultiplayerYBoard } from './components/multiplayer/MultiplayerYBoard';
 import { useMultiplayerGame } from './hooks/useMultiplayerGame';
 import { CURRICULUM_PRESETS, CurriculumPresetId } from './data/curriculums';
 
@@ -85,13 +87,25 @@ export const App: React.FC = () => {
         multiplayerRoomId={multiplayer.roomState.roomId}
       />
 
-      {/* 2. 메인 게임 뷰 (멀티플레이 진행 중인 경우 MultiplayerGameBoard 렌더링) */}
+      {/* 2. 메인 게임 뷰 (멀티플레이 진행 중인 경우 해당 모드의 P2P 보드 렌더링) */}
       <main className="flex-1 pb-16">
         {isMultiplayerPlaying ? (
-          <MultiplayerGameBoard
-            multiplayer={multiplayer}
-            onLeave={() => multiplayer.leaveRoom()}
-          />
+          multiplayer.roomState.gameType === 'descartes_x' ? (
+            <MultiplayerXBoard
+              multiplayer={multiplayer}
+              onLeave={() => multiplayer.leaveRoom()}
+            />
+          ) : multiplayer.roomState.gameType === 'descartes_y' ? (
+            <MultiplayerYBoard
+              multiplayer={multiplayer}
+              onLeave={() => multiplayer.leaveRoom()}
+            />
+          ) : (
+            <MultiplayerGameBoard
+              multiplayer={multiplayer}
+              onLeave={() => multiplayer.leaveRoom()}
+            />
+          )
         ) : (
           <>
             {/* 모드 1: 데카르트 핏 (메인 실시간 교환) */}

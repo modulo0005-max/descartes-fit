@@ -3,6 +3,7 @@ import { Modal } from '../common/Modal';
 import { QRCodeSVG } from 'qrcode.react';
 import { useMultiplayerGame } from '../../hooks/useMultiplayerGame';
 import { FunctionFamily } from '../../types/math';
+import { MultiplayerGameType } from '../../types/multiplayer';
 import {
   Users,
   QrCode,
@@ -44,6 +45,7 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
   } = multiplayer;
 
   const [activeTab, setActiveTab] = useState<'host' | 'client'>(initialTab);
+  const [selectedGameType, setSelectedGameType] = useState<MultiplayerGameType>('pit');
   const [inputRoomId, setInputRoomId] = useState(initialRoomCode);
   const [inputName, setInputName] = useState(roomState.myName);
   const [copied, setCopied] = useState(false);
@@ -246,24 +248,81 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="pt-3 border-t border-[#dadada] space-y-2">
+                  <div className="pt-3 border-t border-[#dadada] space-y-3">
+                    {/* 게임 모드 선택 3종 */}
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-bold text-[#484848] flex items-center justify-between">
+                        <span>플레이할 교실 게임 모드:</span>
+                        <span className="text-[11px] font-normal text-[#888]">
+                          {selectedGameType === 'pit'
+                            ? '9장 세트 실시간 맞교환'
+                            : selectedGameType === 'descartes_x'
+                            ? '공통 성질 털기 원카드'
+                            : '5라운드 함숫값 배틀'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedGameType('pit')}
+                          className={`py-2 px-1 rounded-xl text-xs font-game font-black flex flex-col items-center justify-center gap-0.5 border-2 transition ${
+                            selectedGameType === 'pit'
+                              ? 'bg-red-50 border-[#e60012] text-[#e60012] shadow-xs'
+                              : 'bg-white border-[#dadada] text-[#727272] hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="text-base">🔔</span>
+                          <span>데카르트 핏</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedGameType('descartes_x')}
+                          className={`py-2 px-1 rounded-xl text-xs font-game font-black flex flex-col items-center justify-center gap-0.5 border-2 transition ${
+                            selectedGameType === 'descartes_x'
+                              ? 'bg-red-50 border-[#e60012] text-[#e60012] shadow-xs'
+                              : 'bg-white border-[#dadada] text-[#727272] hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="text-base">🃏</span>
+                          <span>데카르트 X</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedGameType('descartes_y')}
+                          className={`py-2 px-1 rounded-xl text-xs font-game font-black flex flex-col items-center justify-center gap-0.5 border-2 transition ${
+                            selectedGameType === 'descartes_y'
+                              ? 'bg-red-50 border-[#e60012] text-[#e60012] shadow-xs'
+                              : 'bg-white border-[#dadada] text-[#727272] hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className="text-base">⚔️</span>
+                          <span>데카르트 Y</span>
+                        </button>
+                      </div>
+                    </div>
+
                     {(() => {
                       const playerCount = roomState.players.length;
                       const canStart = playerCount >= 2;
+                      const gameName =
+                        selectedGameType === 'pit'
+                          ? '데카르트 핏'
+                          : selectedGameType === 'descartes_x'
+                          ? '데카르트 X'
+                          : '데카르트 Y';
+
                       const buttonLabel =
                         playerCount < 2
                           ? '대기 중 (학생 접속 대기... 최소 2인 필요)'
-                          : playerCount === 2
-                          ? '⚔️ 2인 듀얼 시작! (총 18장 / 2개 함수 세트)'
-                          : playerCount === 3
-                          ? '🔺 3인 삼파전 시작! (총 27장 / 3개 함수 세트)'
-                          : '👑 4인 표준 대전 시작! (총 36장 / 4개 함수 세트)';
+                          : `🚀 [${gameName}] ${playerCount}인 대전 시작하기!`;
 
                       return (
                         <button
                           type="button"
                           onClick={() => {
-                            startMultiplayerGame(allowedFamilies);
+                            startMultiplayerGame(selectedGameType, allowedFamilies);
                             onClose();
                           }}
                           disabled={!canStart}
@@ -275,7 +334,7 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                       );
                     })()}
                     <div className="flex items-center justify-between text-[11px] text-[#727272] px-1">
-                      <span>* 2인, 3인, 4인 모두 지원됩니다 (인원수에 맞춰 18장/27장/36장 자동 조절).</span>
+                      <span>* 2인, 3인, 4인 모두 지원되며 선택한 게임 보드가 전체 학생에게 동기화됩니다.</span>
                       <button
                         type="button"
                         onClick={leaveRoom}
