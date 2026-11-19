@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { QRCodeSVG } from 'qrcode.react';
 import { useMultiplayerGame } from '../../hooks/useMultiplayerGame';
@@ -13,16 +13,23 @@ import {
   School,
   AlertCircle,
   HelpCircle,
+  Loader2,
 } from 'lucide-react';
 
 interface MultiplayerLobbyModalProps {
   isOpen: boolean;
   onClose: () => void;
+  multiplayer: ReturnType<typeof useMultiplayerGame>;
+  initialRoomCode?: string;
+  initialTab?: 'host' | 'client';
 }
 
 export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
   isOpen,
   onClose,
+  multiplayer,
+  initialRoomCode = '',
+  initialTab = 'host',
 }) => {
   const {
     roomState,
@@ -30,12 +37,26 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
     createRoom,
     joinRoom,
     startMultiplayerGame,
-  } = useMultiplayerGame();
+    leaveRoom,
+  } = multiplayer;
 
-  const [activeTab, setActiveTab] = useState<'host' | 'client'>('host');
-  const [inputRoomId, setInputRoomId] = useState('');
+  const [activeTab, setActiveTab] = useState<'host' | 'client'>(initialTab);
+  const [inputRoomId, setInputRoomId] = useState(initialRoomCode);
   const [inputName, setInputName] = useState(roomState.myName);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (initialRoomCode) {
+      setInputRoomId(initialRoomCode);
+      setActiveTab('client');
+    }
+  }, [initialRoomCode]);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // 호스트 방 생성 핸들러
   const handleHostCreate = () => {
@@ -57,9 +78,10 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
   };
 
   // 모바일 접속 URL 생성
-  const joinUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}${window.location.pathname}?room=${roomState.roomId}`
-    : `https://descartes-fit.web.app/?room=${roomState.roomId}`;
+  const joinUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}${window.location.pathname}?room=${roomState.roomId}`
+      : `https://descartes-fit.web.app/?room=${roomState.roomId}`;
 
   return (
     <Modal
@@ -104,12 +126,19 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
             {!roomState.roomId ? (
               <div className="text-center py-8 bg-[#fdfdfd] border-2 border-dashed border-[#dadada] rounded-2xl p-6">
                 <QrCode className="w-16 h-16 mx-auto text-[#e60012] mb-3 animate-pulse" />
-                <h3 className="text-xl font-black text-[#111827] mb-2">
+                <h3 className="text-xl font-black text-[#111827] mb-2 font-game">
                   새로운 교실 대전 방을 생성하시겠습니까?
                 </h3>
                 <p className="text-sm text-[#727272] max-w-md mx-auto mb-6">
                   호스트 방을 열면 교실 전자칠판에 <strong>대형 QR 코드</strong>와 <strong>4자리 룸코드</strong>가 표시되어, 학생들이 스마트폰 카메라로 즉시 스캔하여 참여할 수 있습니다.
                 </p>
+
+                {errorMessage && (
+                  <div className="mb-4 max-w-md mx-auto p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 justify-center">
+                    <AlertCircle size={15} />
+                    <span>{errorMessage}</span>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-center gap-3">
                   <input
@@ -122,9 +151,17 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                   <button
                     type="button"
                     onClick={handleHostCreate}
-                    className="nintendo-btn-primary px-6 py-2.5 text-base font-bold shadow-md"
+                    disabled={roomState.status === 'connecting'}
+                    className="btn-nintendo-red px-6 py-2.5 text-base font-game font-bold shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
                   >
-                    🚀 호스트 룸 생성하기
+                    {roomState.status === 'connecting' ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>생성 중...</span>
+                      </>
+                    ) : (
+                      <span>🚀 호스트 룸 생성하기</span>
+                    )}
                   </button>
                 </div>
               </div>
@@ -159,7 +196,7 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                       </button>
                     </div>
                     <div className="text-[11px] text-[#727272] mt-2">
-                      스마트폰 카메라로 위 QR 코드를 스캔하세요!
+                      스마트폰 카메라로 위 QR 코드를 스캔하면 자동 접속됩니다!
                     </div>
                   </div>
                 </div>
@@ -173,7 +210,7 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                         대기실 참여 인원 ({roomState.players.length}명)
                       </span>
                       <span className="text-xs text-emerald-600 font-bold flex items-center gap-1">
-                        <Wifi size={14} /> P2P 연결 활성
+                        <Wifi size={14} /> P2P 활성
                       </span>
                     </div>
 
@@ -194,7 +231,7 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[10px] text-[#727272]">
+                              <div className="text-[10px] text-emerald-600 font-semibold">
                                 {p.isReady ? '준비 완료' : '대기 중'}
                               </div>
                             </div>
@@ -206,20 +243,27 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="pt-3 border-t border-[#dadada]">
+                  <div className="pt-3 border-t border-[#dadada] space-y-2">
                     <button
                       type="button"
                       onClick={() => {
                         startMultiplayerGame();
                         onClose();
                       }}
-                      className="nintendo-btn-primary w-full py-3 text-base font-black flex items-center justify-center gap-2 shadow-md cursor-pointer"
+                      className="btn-nintendo-red w-full py-3 text-base font-game font-black flex items-center justify-center gap-2 shadow-md cursor-pointer"
                     >
                       <Play size={18} fill="currentColor" />
                       <span>게임 시작 (모든 학생에게 9장 배분)</span>
                     </button>
-                    <div className="text-[11px] text-[#727272] text-center mt-2">
-                      * 2명 이상 참여 시 정규 교환 게임이 진행됩니다.
+                    <div className="flex items-center justify-between text-[11px] text-[#727272] px-1">
+                      <span>* 2인 이상 참여 시 대전이 활성화됩니다.</span>
+                      <button
+                        type="button"
+                        onClick={leaveRoom}
+                        className="text-rose-600 hover:underline"
+                      >
+                        방 폭파 / 닫기
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -231,58 +275,120 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
         {/* 2. 클라이언트 뷰 (학생 참여 화면) */}
         {activeTab === 'client' && (
           <div className="max-w-md mx-auto p-6 bg-[#fdfdfd] border border-[#dadada] rounded-2xl shadow-sm space-y-4">
-            <div className="text-center mb-4">
-              <Smartphone className="w-12 h-12 mx-auto text-[#e60012] mb-2" />
-              <h3 className="text-lg font-black text-[#111827]">선생님의 교실 방 참가하기</h3>
-              <p className="text-xs text-[#727272] mt-1">
-                칠판에 뜬 4자리 룸코드를 입력하고 접속하세요.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-[#484848] mb-1">
-                  내 닉네임
-                </label>
-                <input
-                  type="text"
-                  value={inputName}
-                  onChange={(e) => setInputName(e.target.value)}
-                  placeholder="예: 1반 김수학"
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#dadada] text-sm font-bold bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[#484848] mb-1">
-                  룸 코드 (4자리 영문/숫자)
-                </label>
-                <input
-                  type="text"
-                  value={inputRoomId}
-                  onChange={(e) => setInputRoomId(e.target.value.toUpperCase())}
-                  maxLength={6}
-                  placeholder="예: DESK"
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#dadada] text-lg font-black font-mono text-center uppercase tracking-widest bg-white"
-                />
-              </div>
-
-              {errorMessage && (
-                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-1.5">
-                  <AlertCircle size={15} />
-                  <span>{errorMessage}</span>
+            {roomState.status === 'lobby' ? (
+              <div className="text-center py-4 space-y-4">
+                <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-2xl animate-bounce">
+                  <Check size={32} />
                 </div>
-              )}
+                <div>
+                  <h3 className="text-xl font-game font-black text-[#111827]">
+                    [{roomState.roomId}] 방 접속 완료!
+                  </h3>
+                  <p className="text-xs text-[#727272] mt-1">
+                    선생님이 게임을 시작할 때까지 잠시 대기해 주세요.<br />
+                    시작 시 자동으로 9장의 카드를 배분받고 대전 화면으로 이동합니다!
+                  </p>
+                </div>
 
-              <button
-                type="button"
-                onClick={handleClientJoin}
-                disabled={!inputRoomId.trim()}
-                className="nintendo-btn-primary w-full py-3 text-base font-black flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
-              >
-                <span>접속하기 ➔</span>
-              </button>
-            </div>
+                {/* 현재 참여 학생 목록 */}
+                <div className="bg-white rounded-2xl border border-[#dadada] p-3 text-left">
+                  <div className="text-xs font-bold text-[#888] mb-2 flex items-center justify-between">
+                    <span>함께 입장한 플레이어</span>
+                    <span className="text-[#e60012]">{roomState.players.length}명</span>
+                  </div>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                    {roomState.players.map((p) => (
+                      <div
+                        key={p.peerId}
+                        className="flex items-center justify-between text-xs font-bold p-2 rounded-xl bg-gray-50 border border-gray-100"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span>{p.avatar}</span>
+                          <span>{p.name} {p.isHost && '(선생님)'}</span>
+                        </span>
+                        <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">
+                          접속 중
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={leaveRoom}
+                    className="text-xs text-rose-600 hover:underline font-bold"
+                  >
+                    대기실 나가기
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="text-center mb-4">
+                  <Smartphone className="w-12 h-12 mx-auto text-[#e60012] mb-2" />
+                  <h3 className="text-lg font-black text-[#111827] font-game">
+                    선생님의 교실 방 참가하기
+                  </h3>
+                  <p className="text-xs text-[#727272] mt-1">
+                    전자칠판에 뜬 4자리 룸코드를 입력하고 접속하세요.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-[#484848] mb-1">
+                      내 닉네임
+                    </label>
+                    <input
+                      type="text"
+                      value={inputName}
+                      onChange={(e) => setInputName(e.target.value)}
+                      placeholder="예: 1반 김수학"
+                      className="w-full px-4 py-2.5 rounded-xl border border-[#dadada] text-sm font-bold bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-[#484848] mb-1">
+                      룸 코드 (4자리 영문/숫자)
+                    </label>
+                    <input
+                      type="text"
+                      value={inputRoomId}
+                      onChange={(e) => setInputRoomId(e.target.value.toUpperCase())}
+                      maxLength={6}
+                      placeholder="예: ABCD"
+                      className="w-full px-4 py-2.5 rounded-xl border border-[#dadada] text-lg font-black font-mono text-center uppercase tracking-widest bg-white"
+                    />
+                  </div>
+
+                  {errorMessage && (
+                    <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-1.5">
+                      <AlertCircle size={15} />
+                      <span>{errorMessage}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleClientJoin}
+                    disabled={!inputRoomId.trim() || roomState.status === 'connecting'}
+                    className="btn-nintendo-red w-full py-3 text-base font-game font-black flex items-center justify-center gap-2 shadow-md disabled:opacity-50 cursor-pointer"
+                  >
+                    {roomState.status === 'connecting' ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>호스트 연결 중...</span>
+                      </>
+                    ) : (
+                      <span>접속하기 ➔</span>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -290,7 +396,7 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
         <div className="p-3.5 rounded-xl bg-[#f8f8f8] border border-[#dadada] text-xs text-[#727272] flex items-start gap-2.5">
           <HelpCircle size={16} className="text-[#e60012] shrink-0 mt-0.5" />
           <div className="leading-relaxed">
-            <strong>WebRTC P2P 무설치 통신 기술:</strong> 외부 상용 서버 없이 브라우저 간에 직접 암호화된 고속 데이터 채널을 연결합니다. 학교 와이파이 망 내에서도 지연 없이 실시간 카드 교환을 즐길 수 있습니다.
+            <strong>WebRTC P2P 무설치 통신 기술:</strong> 별도의 외부 유료 서버 가입 없이 브라우저 간에 암호화된 고속 데이터 채널을 직접 연결합니다. 학교 와이파이 망 내에서도 지연 없이 실시간 카드 교환을 즐길 수 있습니다.
           </div>
         </div>
       </div>

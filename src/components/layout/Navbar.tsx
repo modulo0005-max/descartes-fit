@@ -24,6 +24,8 @@ interface NavbarProps {
   onOpenMultiplayer: () => void;
   activeCurriculum: CurriculumPresetId;
   onOpenCurriculumModal: () => void;
+  multiplayerStatus?: 'idle' | 'connecting' | 'lobby' | 'playing' | 'game_over';
+  multiplayerRoomId?: string;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -34,6 +36,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenMultiplayer,
   activeCurriculum,
   onOpenCurriculumModal,
+  multiplayerStatus = 'idle',
+  multiplayerRoomId,
 }) => {
   const [isMuted, setIsMuted] = useState(soundEngine.getMuted());
   const currentPreset = CURRICULUM_PRESETS[activeCurriculum];
@@ -162,11 +166,21 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={onOpenMultiplayer}
-            className="nintendo-utility-pill flex items-center gap-1.5 text-xs font-game"
+            className={`nintendo-utility-pill flex items-center gap-1.5 text-xs font-game ${
+              multiplayerStatus === 'playing' || multiplayerStatus === 'lobby'
+                ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-xs ring-2 ring-blue-100'
+                : ''
+            }`}
             title="스마트폰/태블릿 교실 멀티플레이어 로비"
           >
-            <QrCode size={14} className="text-blue-600" />
-            <span className="hidden sm:inline">QR 멀티</span>
+            <QrCode size={14} className={multiplayerStatus === 'playing' || multiplayerStatus === 'lobby' ? 'text-[#e60012] animate-pulse' : 'text-blue-600'} />
+            <span className="hidden sm:inline">
+              {multiplayerStatus === 'playing'
+                ? `P2P 대전 중 (${multiplayerRoomId})`
+                : multiplayerStatus === 'lobby'
+                ? `대기실 (${multiplayerRoomId})`
+                : 'QR 멀티'}
+            </span>
           </button>
 
           {/* 교육과정 선택 프리셋 버튼 */}

@@ -15,19 +15,20 @@ export interface RemotePlayer {
 
 export type NetworkMessage =
   | { type: 'JOIN'; name: string; avatar: string }
+  | { type: 'JOIN_ACK'; roomId: string; players: RemotePlayer[]; hostName: string }
   | { type: 'LOBBY_UPDATE'; players: RemotePlayer[]; hostName: string }
   | { type: 'GAME_STARTED'; yourHand: FunctionCard[]; activeFamilies: FunctionFamily[] }
-  | { type: 'OFFER_TRADE'; count: number; offerId: string }
-  | { type: 'CANCEL_OFFER' }
-  | { type: 'REQUEST_TRADE'; targetPeerId: string; count: number; cards: FunctionCard[] }
+  | { type: 'OFFER_TRADE'; count: number; offerId: string; cardIds: string[] }
+  | { type: 'CANCEL_OFFER'; peerId: string }
+  | { type: 'REQUEST_TRADE'; requesterPeerId: string; targetPeerId: string; count: number; cardIds: string[] }
   | { type: 'TRADE_SUCCESS'; newHand: FunctionCard[]; partnerName: string; count: number }
-  | { type: 'BELL_RING'; winnerName: string; winnerFamily: FunctionFamily; success: boolean }
+  | { type: 'BELL_RING'; winnerName: string; winnerFamily?: FunctionFamily; success: boolean }
   | { type: 'LOG_MESSAGE'; text: string; logType?: 'trade' | 'alert' | 'fit' | 'system' };
 
 export interface MultiplayerRoomState {
   roomId: string;
   role: PeerRole;
-  status: 'connecting' | 'lobby' | 'playing' | 'game_over';
+  status: 'idle' | 'connecting' | 'lobby' | 'playing' | 'game_over';
   players: RemotePlayer[];
   myPeerId: string;
   myName: string;

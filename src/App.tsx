@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameMode, PlayerCount, FitSubRule } from './types/game';
 import { FunctionFamily } from './types/math';
 import { Navbar } from './components/layout/Navbar';
@@ -11,12 +11,18 @@ import { RuleGuideModal } from './components/layout/RuleGuideModal';
 import { CurriculumModal } from './components/layout/CurriculumModal';
 import { InteractiveTutorialModal } from './components/tutorial/InteractiveTutorialModal';
 import { MultiplayerLobbyModal } from './components/multiplayer/MultiplayerLobbyModal';
+import { MultiplayerGameBoard } from './components/multiplayer/MultiplayerGameBoard';
+import { useMultiplayerGame } from './hooks/useMultiplayerGame';
 import { CURRICULUM_PRESETS, CurriculumPresetId } from './data/curriculums';
 
 export const App: React.FC = () => {
   const [currentMode, setCurrentMode] = useState<GameMode>('pit');
   const [playerCount, setPlayerCount] = useState<PlayerCount>(4);
   const [fitSubRule, setFitSubRule] = useState<FitSubRule>('classic');
+
+  // P2P 멀티플레이어 통합 훅 (앱 최상위에서 영속 관리)
+  const multiplayer = useMultiplayerGame();
+  const [initialRoomCode, setInitialRoomCode] = useState('');
 
   // 모달 상태
   const [isRulesOpen, setIsRulesOpen] = useState(false);
@@ -37,6 +43,18 @@ export const App: React.FC = () => {
   const activeAllowedFamilies =
     activeCurriculum === 'custom' ? customFamilies : currentPreset.allowedFamilies;
 
+  // 스마트폰 QR 코드 스캔 시 URL 쿼리 스트링 (?room=ABCD) 자동 감지
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const roomParam = params.get('room');
+      if (roomParam) {
+        setInitialRoomCode(roomParam.trim().toUpperCase());
+        setIsMultiplayerOpen(true);
+      }
+    }
+  }, []);
+
   const handleToggleCustomFamily = (family: FunctionFamily) => {
     setCustomFamilies((prev) => {
       if (prev.includes(family)) {
@@ -47,6 +65,10 @@ export const App: React.FC = () => {
       }
     });
   };
+
+  const isMultiplayerPlaying =
+    multiplayer.roomState.status === 'playing' ||
+    multiplayer.roomState.status === 'game_over';
 
   return (
     <div className="min-h-screen bg-[#f5f3ef] text-[#262626] flex flex-col font-sans selection:bg-[#e60012] selection:text-white">
@@ -59,51 +81,62 @@ export const App: React.FC = () => {
         onOpenMultiplayer={() => setIsMultiplayerOpen(true)}
         activeCurriculum={activeCurriculum}
         onOpenCurriculumModal={() => setIsCurriculumModalOpen(true)}
+        multiplayerStatus={multiplayer.roomState.status}
+        multiplayerRoomId={multiplayer.roomState.roomId}
       />
 
-      {/* 2. 메인 게임 뷰 (모드에 따라 분기 렌더링) */}
+      {/* 2. 메인 게임 뷰 (멀티플레이 진행 중인 경우 MultiplayerGameBoard 렌더링) */}
       <main className="flex-1 pb-16">
-        {/* 모드 1: 데카르트 핏 (메인 실시간 교환) */}
-        {currentMode === 'pit' && (
-          <PitGameBoard
-            allowedFamilies={activeAllowedFamilies}
-            curriculumName={currentPreset.name}
-            onOpenCurriculumModal={() => setIsCurriculumModalOpen(true)}
-            playerCount={playerCount}
-            onChangePlayerCount={(count) => setPlayerCount(count)}
-            fitSubRule={fitSubRule}
-            onChangeSubRule={(rule) => setFitSubRule(rule)}
-            onOpenTutorial={() => setIsTutorialOpen(true)}
-            onOpenMultiplayer={() => setIsMultiplayerOpen(true)}
+        {isMultiplayerPlaying ? (
+          <MultiplayerGameBoard
+            multiplayer={multiplayer}
+            onLeave={() => multiplayer.leaveRoom()}
           />
-        )}
+        ) : (
+          <>
+            {/* 모드 1: 데카르트 핏 (메인 실시간 교환) */}
+            {currentMode === 'pit' && (
+              <PitGameBoard
+                allowedFamilies={activeAllowedFamilies}
+                curriculumName={currentPreset.name}
+                onOpenCurriculumModal={() => setIsCurriculumModalOpen(true)}
+                playerCount={playerCount}
+                onChangePlayerCount={(count) => setPlayerCount(count)}
+                fitSubRule={fitSubRule}
+                onChangeSubRule={(rule) => setFitSubRule(rule)}
+                onOpenTutorial={() => setIsTutorialOpen(true)}
+                onOpenMultiplayer={() => setIsMultiplayerOpen(true)}
+              />
+            )}
 
-        {/* 모드 2: 데카르트 X (공통 성질 털기) */}
-        {currentMode === 'descartes_x' && (
-          <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4">
-            <DescartesXBoard allowedFamilies={activeAllowedFamilies} />
-          </div>
-        )}
+            {/* 모드 2: 데카르트 X (공통 성질 털기) */}
+            {currentMode === 'descartes_x' && (
+              <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4">
+                <DescartesXBoard allowedFamilies={activeAllowedFamilies} />
+              </div>
+            )}
 
-        {/* 모드 3: 데카르트 Y (좌표 함숫값 배틀) */}
-        {currentMode === 'descartes_y' && (
-          <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4">
-            <DescartesYBoard allowedFamilies={activeAllowedFamilies} />
-          </div>
-        )}
+            {/* 모드 3: 데카르트 Y (좌표 함숫값 배틀) */}
+            {currentMode === 'descartes_y' && (
+              <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4">
+                <DescartesYBoard allowedFamilies={activeAllowedFamilies} />
+              </div>
+            )}
 
-        {/* 모드 4: 스피드 매칭 퀴즈 */}
-        {currentMode === 'rush' && (
-          <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4">
-            <PropertyRushBoard allowedFamilies={activeAllowedFamilies} />
-          </div>
-        )}
+            {/* 모드 4: 스피드 매칭 퀴즈 */}
+            {currentMode === 'rush' && (
+              <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4">
+                <PropertyRushBoard allowedFamilies={activeAllowedFamilies} />
+              </div>
+            )}
 
-        {/* 모드 5: 함수 도감 랩 */}
-        {currentMode === 'lab' && (
-          <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4">
-            <FunctionDexLab />
-          </div>
+            {/* 모드 5: 함수 도감 랩 */}
+            {currentMode === 'lab' && (
+              <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4">
+                <FunctionDexLab />
+              </div>
+            )}
+          </>
         )}
       </main>
 
@@ -141,6 +174,9 @@ export const App: React.FC = () => {
       <MultiplayerLobbyModal
         isOpen={isMultiplayerOpen}
         onClose={() => setIsMultiplayerOpen(false)}
+        multiplayer={multiplayer}
+        initialRoomCode={initialRoomCode}
+        initialTab={initialRoomCode ? 'client' : 'host'}
       />
 
       {/* 교육과정 설정 모달 */}

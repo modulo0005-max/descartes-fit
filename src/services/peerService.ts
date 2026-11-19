@@ -5,6 +5,18 @@ export type MessageHandler = (senderPeerId: string, message: NetworkMessage) => 
 export type ConnectionHandler = (peerId: string) => void;
 export type DisconnectHandler = (peerId: string) => void;
 
+const PEER_CONFIG = {
+  debug: 1,
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+    ],
+  },
+};
+
 class PeerService {
   private peer: Peer | null = null;
   private connections: Map<string, DataConnection> = new Map();
@@ -22,7 +34,9 @@ class PeerService {
     }
 
     try {
-      this.peer = customId ? new Peer(customId) : new Peer();
+      this.peer = customId
+        ? new Peer(customId, PEER_CONFIG)
+        : new Peer(PEER_CONFIG);
 
       this.peer.on('open', (id) => {
         if (onReady) onReady(id);
@@ -33,6 +47,7 @@ class PeerService {
       });
 
       this.peer.on('error', (err) => {
+        console.warn('PeerJS system error:', err);
         if (onError) onError(err);
       });
     } catch (e) {
@@ -45,37 +60,59 @@ class PeerService {
     onOpen?: () => void,
     onError?: (err: Error) => void
   ) {
-    if (!this.peer) return;
+    if (!this.peer) {
+      if (onError) onError(new Error('P2P 서비스가 초기화되지 않았습니다.'));
+      return;
+    }
 
-    const conn = this.peer.connect(hostPeerId, { reliable: true });
+    try {
+      const conn = this.peer.connect(hostPeerId, { reliable: true });
 
-    conn.on('open', () => {
-      this.connections.set(hostPeerId, conn);
-      if (onOpen) onOpen();
-      if (this.onConnectCallback) this.onConnectCallback(hostPeerId);
-    });
+      const handleOpen = () => {
+        this.connections.set(hostPeerId, conn);
+        if (onOpen) onOpen();
+        if (this.onConnectCallback) this.onConnectCallback(hostPeerId);
+      };
 
-    conn.on('data', (data) => {
-      if (this.onMessageCallback) {
-        this.onMessageCallback(hostPeerId, data as NetworkMessage);
+      if (conn.open) {
+        handleOpen();
+      } else {
+        conn.on('open', handleOpen);
       }
-    });
 
-    conn.on('close', () => {
-      this.connections.delete(hostPeerId);
-      if (this.onDisconnectCallback) this.onDisconnectCallback(hostPeerId);
-    });
+      conn.on('data', (data) => {
+        if (this.onMessageCallback) {
+          this.onMessageCallback(hostPeerId, data as NetworkMessage);
+        }
+      });
 
-    conn.on('error', (err) => {
-      if (onError) onError(err);
-    });
+      conn.on('close', () => {
+        this.connections.delete(hostPeerId);
+        if (this.onDisconnectCallback) this.onDisconnectCallback(hostPeerId);
+      });
+
+      conn.on('error', (err) => {
+        console.warn(`Host connection error (${hostPeerId}):`, err);
+        if (onError) onError(err);
+      });
+    } catch (err) {
+      if (onError && err instanceof Error) onError(err);
+    }
   }
 
   private setupConnection(conn: DataConnection) {
-    conn.on('open', () => {
+    this.connections.set(conn.peer, conn);
+
+    const handleOpen = () => {
       this.connections.set(conn.peer, conn);
       if (this.onConnectCallback) this.onConnectCallback(conn.peer);
-    });
+    };
+
+    if (conn.open) {
+      handleOpen();
+    } else {
+      conn.on('open', handleOpen);
+    }
 
     conn.on('data', (data) => {
       if (this.onMessageCallback) {
@@ -86,6 +123,10 @@ class PeerService {
     conn.on('close', () => {
       this.connections.delete(conn.peer);
       if (this.onDisconnectCallback) this.onDisconnectCallback(conn.peer);
+    });
+
+    conn.on('error', (err) => {
+      console.warn(`Connection error on ${conn.peer}:`, err);
     });
   }
 
