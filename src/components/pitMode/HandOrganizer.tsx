@@ -136,4 +136,3 @@ export const HandOrganizer: React.FC<HandOrganizerProps> = ({
     </div>
   );
 };
-};
