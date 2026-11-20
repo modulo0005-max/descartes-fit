@@ -82,11 +82,19 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // 모바일 접속 URL 생성
-  const joinUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}${window.location.pathname}?room=${roomState.roomId}`
-      : `https://descartes-fit.web.app/?room=${roomState.roomId}`;
+  const isLocal =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  // 모바일 접속 URL 생성:
+  // PC가 로컬 개발 서버(localhost)에서 방을 만들더라도 스마트폰은 localhost에 접속할 수 없으므로,
+  // 배포된 공식 사이트 URL로 QR 코드를 생성하여 스마트폰 브라우저가 정상 로드되도록 지원합니다.
+  const productionBaseUrl = 'https://modulo0005-max.github.io/descartes-fit/';
+  const joinUrl = isLocal
+    ? `${productionBaseUrl}?room=${roomState.roomId}`
+    : typeof window !== 'undefined'
+    ? `${window.location.origin}${window.location.pathname}?room=${roomState.roomId}`
+    : `${productionBaseUrl}?room=${roomState.roomId}`;
 
   return (
     <Modal
@@ -203,6 +211,12 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                     <div className="text-[11px] text-[#727272] mt-2">
                       스마트폰 카메라로 위 QR 코드를 스캔하면 자동 접속됩니다!
                     </div>
+
+                    {isLocal && (
+                      <div className="mt-2.5 p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] text-left leading-relaxed">
+                        ⚠️ <strong>로컬 개발 환경(localhost) 안내:</strong> 스마트폰은 PC의 <code>localhost</code>에 직접 접근할 수 없습니다. 스마트폰으로 테스트하려면 스마트폰 브라우저에서 <strong>GitHub Pages 배포 주소</strong>로 접속하시거나, PC와 스마트폰이 같은 Wi-Fi일 때 PC의 IP 주소(예: <code>192.168.x.x:5173</code>)로 열어주세요.
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -318,15 +332,22 @@ export const MultiplayerLobbyModal: React.FC<MultiplayerLobbyModalProps> = ({
                           ? '대기 중 (학생 접속 대기... 최소 2인 필요)'
                           : `🚀 [${gameName}] ${playerCount}인 대전 시작하기!`;
 
+                      const handleStartGame = () => {
+                        try {
+                          startMultiplayerGame(selectedGameType, allowedFamilies);
+                        } catch (err) {
+                          console.error('[MultiplayerLobby] Failed to start game:', err);
+                        } finally {
+                          onClose();
+                        }
+                      };
+
                       return (
                         <button
                           type="button"
-                          onClick={() => {
-                            startMultiplayerGame(selectedGameType, allowedFamilies);
-                            onClose();
-                          }}
+                          onClick={handleStartGame}
                           disabled={!canStart}
-                          className="btn-nintendo-red w-full py-3 text-base font-game font-black flex items-center justify-center gap-2 shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="btn-nintendo-red w-full py-3 text-base font-game font-black flex items-center justify-center gap-2 shadow-md cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] transition"
                         >
                           <Play size={18} fill="currentColor" />
                           <span>{buttonLabel}</span>

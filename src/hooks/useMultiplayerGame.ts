@@ -9,6 +9,9 @@ import {
 import { FunctionCard, FunctionFamily } from '../types/math';
 import { FUNCTION_CARDS } from '../data/functionCards';
 import { soundEngine } from '../utils/audio';
+import { hydrateCard, hydrateCards } from '../utils/cardSerialization';
+
+const PEER_ROOM_PREFIX = 'descartes-fit-';
 
 function generateRoomCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -145,11 +148,27 @@ export function useMultiplayerGame() {
     []
   );
 
+  // 핸드셰이크 재시도 및 타임아웃 타이머
+  const handshakeRetryTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handshakeTimeoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearHandshakeTimers = useCallback(() => {
+    if (handshakeRetryTimer.current) {
+      clearInterval(handshakeRetryTimer.current);
+      handshakeRetryTimer.current = null;
+    }
+    if (handshakeTimeoutTimer.current) {
+      clearTimeout(handshakeTimeoutTimer.current);
+      handshakeTimeoutTimer.current = null;
+    }
+  }, []);
+
   // [방 생성 - 호스트]
   const createRoom = useCallback(
     (customName?: string) => {
+      clearHandshakeTimers();
       const code = generateRoomCode();
-      const hostPeerId = `descartes-${code.toLowerCase()}`;
+      const hostPeerId = `${PEER_ROOM_PREFIX}${code.toLowerCase()}`;
       const name = customName || roomStateRef.current.myName;
 
       setErrorMessage(null);
@@ -159,6 +178,7 @@ export function useMultiplayerGame() {
         role: 'host',
         status: 'connecting',
         myName: name,
+        players: [],
       }));
 
       peerService.init(
@@ -182,28 +202,37 @@ export function useMultiplayerGame() {
 
           addLog(`방이 생성되었습니다! [방 코드: ${code}]`, 'system');
         },
-        (err) => {
+        (err: any) => {
           console.error('Peer init error:', err);
-          if (err.message.includes('taken') || err.message.includes('unavailable-id')) {
+          const errType = err?.type;
+          const errMsg = err?.message || '';
+          if (
+            errType === 'unavailable-id' ||
+            errMsg.includes('taken') ||
+            errMsg.includes('unavailable-id')
+          ) {
             setErrorMessage('기존 룸 코드가 점유되어 있어 새 코드로 재시도합니다...');
-            setTimeout(() => createRoom(customName), 1000);
+            peerService.destroy();
+            setTimeout(() => createRoom(customName), 500);
           } else {
-            setErrorMessage(`방 생성 실패: ${err.message}`);
+            setErrorMessage(`방 생성 실패: ${errMsg || '네트워크 오류가 발생했습니다.'}`);
             setRoomState((prev) => ({ ...prev, status: 'idle' }));
           }
         }
       );
     },
-    [addLog]
+    [addLog, clearHandshakeTimers]
   );
 
   // [방 입장 - 참가자]
   const joinRoom = useCallback(
     (codeToJoin: string, customName?: string) => {
+      clearHandshakeTimers();
+
       const trimmedCode = codeToJoin.trim().toUpperCase();
       if (!trimmedCode) return;
 
-      const hostPeerId = `descartes-${trimmedCode.toLowerCase()}`;
+      const hostPeerId = `${PEER_ROOM_PREFIX}${trimmedCode.toLowerCase()}`;
       const name = customName || roomStateRef.current.myName;
 
       setErrorMessage(null);
@@ -213,6 +242,7 @@ export function useMultiplayerGame() {
         role: 'client',
         status: 'connecting',
         myName: name,
+        players: [],
       }));
 
       peerService.init(
@@ -223,27 +253,52 @@ export function useMultiplayerGame() {
           peerService.connectToHost(
             hostPeerId,
             () => {
-              peerService.sendTo(hostPeerId, {
+              const joinPayload: NetworkMessage = {
                 type: 'JOIN',
                 name,
                 avatar: roomStateRef.current.myAvatar,
-              });
-              setRoomState((prev) => ({ ...prev, status: 'lobby' }));
-              addLog(`방 [${trimmedCode}] 호스트에 연결되었습니다.`, 'system');
+              };
+
+              // 1차 즉시 전송
+              peerService.sendTo(hostPeerId, joinPayload);
+
+              // 800ms 주기로 JOIN_ACK 수신 전까지 최대 6회 재전송 (WebRTC 첫 패킷 드롭 방지)
+              let retries = 0;
+              handshakeRetryTimer.current = setInterval(() => {
+                retries++;
+                if (retries >= 6) {
+                  clearHandshakeTimers();
+                  return;
+                }
+                peerService.sendTo(hostPeerId, joinPayload);
+              }, 800);
+
+              // 8초 타임아웃
+              handshakeTimeoutTimer.current = setTimeout(() => {
+                clearHandshakeTimers();
+                const current = roomStateRef.current;
+                if (current.status !== 'lobby' && current.status !== 'playing') {
+                  setErrorMessage('호스트로부터 응답이 없습니다. 방 코드가 정확한지 확인해 주세요.');
+                  setRoomState((prev) => ({ ...prev, status: 'idle' }));
+                  peerService.destroy();
+                }
+              }, 8000);
             },
             (err) => {
-              setErrorMessage(`호스트 연결 실패 (방 코드를 확인하세요): ${err.message}`);
+              clearHandshakeTimers();
+              setErrorMessage(`호스트 연결 실패: ${err.message}`);
               setRoomState((prev) => ({ ...prev, status: 'idle' }));
             }
           );
         },
         (err) => {
+          clearHandshakeTimers();
           setErrorMessage(`P2P 네트워크 초기화 실패: ${err.message}`);
           setRoomState((prev) => ({ ...prev, status: 'idle' }));
         }
       );
     },
-    [addLog]
+    [clearHandshakeTimers]
   );
 
   // [호스트 전용: 3대 모드 (핏 / X / Y) 게임 시작 및 셔플 분배]
@@ -252,14 +307,23 @@ export function useMultiplayerGame() {
       gameType: MultiplayerGameType = 'pit',
       allowedFamilies?: FunctionFamily[]
     ) => {
-      const current = roomStateRef.current;
-      if (current.role !== 'host') return;
+      try {
+        const current = roomStateRef.current;
+        const isHost =
+          current.role === 'host' ||
+          current.players.some((p) => p.peerId === current.myPeerId && p.isHost) ||
+          roomState.role === 'host';
 
-      const playerCount = current.players.length;
-      if (playerCount < 2) {
-        setErrorMessage('최소 2명 이상의 플레이어가 대기실에 접속해야 게임을 시작할 수 있습니다.');
-        return;
-      }
+        if (!isHost) {
+          console.warn('[startMultiplayerGame] Not host, aborting start');
+          return;
+        }
+
+        const playerCount = current.players.length;
+        if (playerCount < 2) {
+          setErrorMessage('최소 2명 이상의 플레이어가 대기실에 접속해야 게임을 시작할 수 있습니다.');
+          return;
+        }
 
       const basePool: FunctionFamily[] =
         allowedFamilies && allowedFamilies.length >= 2
@@ -463,9 +527,13 @@ export function useMultiplayerGame() {
         soundEngine.playCardFlip();
         addLog(`⚔️ [데카르트 Y] 좌표 함숫값 배틀이 시작되었습니다! 각자 카드를 5장씩 받았습니다.`, 'system');
       }
-    },
-    [addLog]
-  );
+    } catch (err) {
+      console.error('[startMultiplayerGame] Exception occurred:', err);
+      setErrorMessage(`게임 시작 중 오류가 발생했습니다: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  },
+  [addLog, roomState.role]
+);
 
   // [데카르트 X 액션: 카드 내기]
   const playCardX = useCallback(
@@ -1073,23 +1141,40 @@ export function useMultiplayerGame() {
 
       switch (message.type) {
         case 'JOIN': {
-          if (current.role !== 'host') return;
+          const isHost =
+            current.role === 'host' ||
+            current.players.some((p) => p.peerId === current.myPeerId && p.isHost) ||
+            roomState.role === 'host';
+
+          if (!isHost) return;
+
           setRoomState((prev) => {
-            const exists = prev.players.some((p) => p.peerId === senderPeerId);
-            if (exists) return prev;
-            if (prev.players.length >= 4) return prev;
+            const existingIdx = prev.players.findIndex((p) => p.peerId === senderPeerId);
+            let updatedPlayers: RemotePlayer[];
 
-            const newPlayer: RemotePlayer = {
-              peerId: senderPeerId,
-              name: message.name,
-              avatar: message.avatar,
-              isHost: false,
-              isReady: true,
-              cardCount: 0,
-            };
+            if (existingIdx >= 0) {
+              // 이미 등록된 플레이어(재시도 패킷)인 경우 최신 정보 반영
+              updatedPlayers = [...prev.players];
+              updatedPlayers[existingIdx] = {
+                ...updatedPlayers[existingIdx],
+                name: message.name,
+                avatar: message.avatar,
+              };
+            } else {
+              if (prev.players.length >= 4) return prev;
+              const newPlayer: RemotePlayer = {
+                peerId: senderPeerId,
+                name: message.name,
+                avatar: message.avatar,
+                isHost: false,
+                isReady: true,
+                cardCount: 0,
+              };
+              updatedPlayers = [...prev.players, newPlayer];
+              addLog(`[입장] ${message.name}님이 방에 들어왔습니다!`, 'system');
+            }
 
-            const updatedPlayers = [...prev.players, newPlayer];
-
+            // JOIN_ACK는 매 재시도마다 즉시 회신하여 게스트의 대기실 진입을 100% 보장
             peerService.sendTo(senderPeerId, {
               type: 'JOIN_ACK',
               roomId: prev.roomId,
@@ -1105,18 +1190,19 @@ export function useMultiplayerGame() {
 
             return { ...prev, players: updatedPlayers };
           });
-          addLog(`[입장] ${message.name}님이 방에 들어왔습니다!`, 'system');
           break;
         }
 
         case 'JOIN_ACK': {
+          clearHandshakeTimers();
           setRoomState((prev) => ({
             ...prev,
             roomId: message.roomId,
             players: message.players,
             status: 'lobby',
           }));
-          addLog(`방 [${message.roomId}] 대기실에 입장했습니다.`, 'system');
+          soundEngine.playCardFlip();
+          addLog(`선생님(${message.hostName})의 교실 방에 성공적으로 참여했습니다!`, 'system');
           break;
         }
 
@@ -1129,17 +1215,19 @@ export function useMultiplayerGame() {
         }
 
         case 'GAME_STARTED': {
+          const hydratedHand = hydrateCards(message.yourHand);
+          const hydratedTopCard = message.topCard ? hydrateCard(message.topCard) : undefined;
           setRoomState((prev) => ({
             ...prev,
             status: 'playing',
             gameType: message.gameType,
-            myHand: message.yourHand,
+            myHand: hydratedHand,
             activeFamilies: message.activeFamilies,
             winner: null,
             xState:
-              message.gameType === 'descartes_x' && message.topCard
+              message.gameType === 'descartes_x' && hydratedTopCard
                 ? {
-                    topCard: message.topCard,
+                    topCard: hydratedTopCard,
                     currentTurnPeerId: message.currentTurnPeerId || '',
                     deckCount: message.deckCount || 0,
                     playerCardCounts: prev.players.map((p) => ({ peerId: p.peerId, count: 5 })),
@@ -1217,7 +1305,7 @@ export function useMultiplayerGame() {
         case 'TRADE_SUCCESS': {
           setRoomState((prev) => ({
             ...prev,
-            myHand: message.newHand,
+            myHand: hydrateCards(message.newHand),
             players: prev.players.map((p) => ({ ...p, currentOfferCount: undefined })),
           }));
           setSelectedCardIds([]);
@@ -1243,7 +1331,7 @@ export function useMultiplayerGame() {
         // --- 데카르트 X 모드 ---
         case 'PLAY_CARD_X': {
           if (current.role === 'host') {
-            executePlayCardX(message.peerId, message.card);
+            executePlayCardX(message.peerId, hydrateCard(message.card));
           }
           break;
         }
@@ -1258,7 +1346,7 @@ export function useMultiplayerGame() {
         case 'DRAW_ACK_X': {
           setRoomState((prev) => ({
             ...prev,
-            myHand: [...prev.myHand, message.drawnCard],
+            myHand: [...prev.myHand, hydrateCard(message.drawnCard)],
           }));
           soundEngine.playCardFlip();
           break;
@@ -1268,7 +1356,7 @@ export function useMultiplayerGame() {
           setRoomState((prev) => ({
             ...prev,
             xState: {
-              topCard: message.topCard,
+              topCard: hydrateCard(message.topCard),
               currentTurnPeerId: message.currentTurnPeerId,
               deckCount: message.deckCount,
               playerCardCounts: message.playerCardCounts,
@@ -1293,7 +1381,7 @@ export function useMultiplayerGame() {
         // --- 데카르트 Y 모드 ---
         case 'SUBMIT_CARD_Y': {
           if (current.role === 'host') {
-            hostSubmissionsY.current.set(message.peerId, message.card);
+            hostSubmissionsY.current.set(message.peerId, hydrateCard(message.card));
             checkAllSubmissionsY();
           }
           break;
@@ -1308,7 +1396,10 @@ export function useMultiplayerGame() {
                   roundResult: {
                     round: message.round,
                     conditionIndex: message.conditionIndex,
-                    submissions: message.submissions,
+                    submissions: message.submissions.map((s) => ({
+                      ...s,
+                      card: hydrateCard(s.card),
+                    })),
                     winnerPeerId: message.winnerPeerId,
                   },
                   scores: message.scores,
@@ -1400,6 +1491,7 @@ export function useMultiplayerGame() {
     submitCardY,
     setMyName: (name: string) => setRoomState((prev) => ({ ...prev, myName: name })),
     leaveRoom: () => {
+      clearHandshakeTimers();
       peerService.destroy();
       setRoomState((prev) => ({
         ...prev,
